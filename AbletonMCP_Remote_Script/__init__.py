@@ -1,6 +1,7 @@
 # AbletonMCP/init.py
 from __future__ import absolute_import, print_function, unicode_literals
 
+from .midi_server import MidiServer
 from _Framework.ControlSurface import ControlSurface
 import socket
 import json
@@ -41,6 +42,10 @@ class AbletonMCP(ControlSurface):
         
         # Start the socket server
         self.start_server()
+
+        # Start the MIDI server
+        self.midi_server = MidiServer(self)
+        self.midi_server.start()
         
         self.log_message("AbletonMCP initialized")
         
@@ -62,6 +67,11 @@ class AbletonMCP(ControlSurface):
         # Wait for the server thread to exit
         if self.server_thread and self.server_thread.is_alive():
             self.server_thread.join(1.0)
+
+        # Stop the MIDI server
+        if self.midi_server and self.midi_server.is_alive():
+            self.midi_server.stop()
+            self.midi_server.join(1.0)
             
         # Clean up any client threads
         for client_thread in self.client_threads[:]:
@@ -326,50 +336,6 @@ class AbletonMCP(ControlSurface):
             elif command_type == "get_browser_items_at_path":
                 path = params.get("path", "")
                 response["result"] = self.get_browser_items_at_path(path)
-            elif command_type == "get_device_details":
-                track_index = params.get("track_index", 0)
-                device_index = params.get("device_index", 0)
-                response["result"] = self._get_device_details(track_index, device_index)
-            elif command_type == "set_device_parameter":
-                track_index = params.get("track_index", 0)
-                device_index = params.get("device_index", 0)
-                parameter_name = params.get("parameter_name", "")
-                value = params.get("value", 0)
-                response["result"] = self._set_device_parameter(track_index, device_index, parameter_name, value)
-            elif command_type == "get_scene_info":
-                response["result"] = self._get_scene_info()
-            elif command_type == "fire_scene":
-                scene_index = params.get("scene_index", 0)
-                response["result"] = self._fire_scene(scene_index)
-            elif command_type == "create_scene":
-                scene_index = params.get("scene_index", -1)
-                response["result"] = self._create_scene(scene_index)
-            elif command_type == "rename_scene":
-                scene_index = params.get("scene_index", 0)
-                name = params.get("name", "")
-                response["result"] = self._rename_scene(scene_index, name)
-            elif command_type == "delete_clip":
-                track_index = params.get("track_index", 0)
-                clip_index = params.get("clip_index", 0)
-                response["result"] = self._delete_clip(track_index, clip_index)
-            elif command_type == "set_clip_color":
-                track_index = params.get("track_index", 0)
-                clip_index = params.get("clip_index", 0)
-                color = params.get("color", 0)
-                response["result"] = self._set_clip_color(track_index, clip_index, color)
-            elif command_type == "set_volume":
-                track_index = params.get("track_index", 0)
-                volume = params.get("volume", 0)
-                response["result"] = self._set_volume(track_index, volume)
-            elif command_type == "set_panning":
-                track_index = params.get("track_index", 0)
-                panning = params.get("panning", 0)
-                response["result"] = self._set_panning(track_index, panning)
-            elif command_type == "set_send":
-                track_index = params.get("track_index", 0)
-                send_index = params.get("send_index", 0)
-                value = params.get("value", 0)
-                response["result"] = self._set_send(track_index, send_index, value)
             else:
                 response["status"] = "error"
                 response["message"] = "Unknown command: " + command_type
@@ -433,7 +399,12 @@ class AbletonMCP(ControlSurface):
             # Get devices
             devices = []
             for device_index, device in enumerate(track.devices):
-                devices.append(self._get_device_details(track_index, device_index))
+                devices.append({
+                    "index": device_index,
+                    "name": device.name,
+                    "class_name": device.class_name,
+                    "type": self._get_device_type(device)
+                })
 
             result = {
                 "index": track_index,
@@ -452,190 +423,6 @@ class AbletonMCP(ControlSurface):
         except Exception as e:
             self.log_message("Error getting track info: " + str(e))
             raise
-
-    def _get_device_parameters(self, device):
-        """Get the parameters of a device"""
-        parameters = []
-        if device and hasattr(device, 'parameters'):
-            for param in device.parameters:
-                try:
-                    # Check if the parameter is automatable and has a value
-                    if hasattr(param, 'value') and hasattr(param, 'name') and param.name:
-                        parameter_info = {
-                            "name": param.name,
-                            "value": param.value
-                        }
-                        if hasattr(param, 'min'):
-                            parameter_info["min"] = param.min
-                        if hasattr(param, 'max'):
-                            parameter_info["max"] = param.max
-                        if hasattr(param, 'is_quantized'):
-                            parameter_info["is_quantized"] = param.is_quantized
-
-                        parameters.append(parameter_info)
-                except Exception as e:
-                    # Some parameters might not be accessible
-                    self.log_message("Could not access parameter on device {}: {}".format(device.name, str(e)))
-        return parameters
-
-    def _get_device_details(self, track_index, device_index):
-        """Get detailed information about a single device on a track"""
-        if track_index < 0 or track_index >= len(self._song.tracks):
-            raise IndexError("Track index out of range")
-
-        track = self._song.tracks[track_index]
-
-        if device_index < 0 or device_index >= len(track.devices):
-            raise IndexError("Device index out of range")
-
-        device = track.devices[device_index]
-
-        # Get the "on" parameter if it exists
-        on_parameter = None
-        for param in device.parameters:
-            if param.name.lower() == "device on":
-                on_parameter = param.value
-                break
-
-        device_info = {
-            "index": device_index,
-            "name": device.name,
-            "class_name": device.class_name,
-            "type": self._get_device_type(device),
-            "is_active": on_parameter,
-            "parameters": self._get_device_parameters(device)
-        }
-
-        return device_info
-
-    def _set_device_parameter(self, track_index, device_index, parameter_name, value):
-        """Set a parameter on a device"""
-        if track_index < 0 or track_index >= len(self._song.tracks):
-            raise IndexError("Track index out of range")
-
-        track = self._song.tracks[track_index]
-
-        if device_index < 0 or device_index >= len(track.devices):
-            raise IndexError("Device index out of range")
-
-        device = track.devices[device_index]
-
-        parameter_found = False
-        for param in device.parameters:
-            if param.name == parameter_name:
-                param.value = value
-                parameter_found = True
-                break
-
-        if not parameter_found:
-            raise ValueError("Parameter '{}' not found on device '{}'".format(parameter_name, device.name))
-
-        return {
-            "track_index": track_index,
-            "device_index": device_index,
-            "parameter_name": parameter_name,
-            "value": value
-        }
-
-    def _get_scene_info(self):
-        """Get information about all scenes"""
-        scenes = []
-        for i, scene in enumerate(self._song.scenes):
-            scenes.append({
-                "index": i,
-                "name": scene.name
-            })
-        return scenes
-
-    def _fire_scene(self, scene_index):
-        """Fire a scene"""
-        if scene_index < 0 or scene_index >= len(self._song.scenes):
-            raise IndexError("Scene index out of range")
-
-        self._song.scenes[scene_index].fire()
-        return {"fired": True, "scene_index": scene_index}
-
-    def _create_scene(self, scene_index):
-        """Create a new scene"""
-        self._song.create_scene(scene_index)
-        return {"created": True, "scene_index": scene_index}
-
-    def _rename_scene(self, scene_index, name):
-        """Rename a scene"""
-        if scene_index < 0 or scene_index >= len(self._song.scenes):
-            raise IndexError("Scene index out of range")
-
-        self._song.scenes[scene_index].name = name
-        return {"renamed": True, "scene_index": scene_index, "name": name}
-
-    def _delete_clip(self, track_index, clip_index):
-        """Delete a clip"""
-        if track_index < 0 or track_index >= len(self._song.tracks):
-            raise IndexError("Track index out of range")
-
-        track = self._song.tracks[track_index]
-
-        if clip_index < 0 or clip_index >= len(track.clip_slots):
-            raise IndexError("Clip index out of range")
-
-        clip_slot = track.clip_slots[clip_index]
-
-        if not clip_slot.has_clip:
-            raise Exception("No clip in slot")
-
-        clip_slot.delete_clip()
-
-        return {"deleted": True, "track_index": track_index, "clip_index": clip_index}
-
-    def _set_clip_color(self, track_index, clip_index, color):
-        """Set the color of a clip"""
-        if track_index < 0 or track_index >= len(self._song.tracks):
-            raise IndexError("Track index out of range")
-
-        track = self._song.tracks[track_index]
-
-        if clip_index < 0 or clip_index >= len(track.clip_slots):
-            raise IndexError("Clip index out of range")
-
-        clip_slot = track.clip_slots[clip_index]
-
-        if not clip_slot.has_clip:
-            raise Exception("No clip in slot")
-
-        clip_slot.clip.color = color
-
-        return {"color_set": True, "track_index": track_index, "clip_index": clip_index, "color": color}
-
-    def _set_volume(self, track_index, volume):
-        """Set the volume of a track"""
-        if track_index < 0 or track_index >= len(self._song.tracks):
-            raise IndexError("Track index out of range")
-
-        track = self._song.tracks[track_index]
-        track.mixer_device.volume.value = volume
-        return {"track_index": track_index, "volume": volume}
-
-    def _set_panning(self, track_index, panning):
-        """Set the panning of a track"""
-        if track_index < 0 or track_index >= len(self._song.tracks):
-            raise IndexError("Track index out of range")
-
-        track = self._song.tracks[track_index]
-        track.mixer_device.panning.value = panning
-        return {"track_index": track_index, "panning": panning}
-
-    def _set_send(self, track_index, send_index, value):
-        """Set the send level of a track"""
-        if track_index < 0 or track_index >= len(self._song.tracks):
-            raise IndexError("Track index out of range")
-
-        track = self._song.tracks[track_index]
-
-        if send_index < 0 or send_index >= len(track.mixer_device.sends):
-            raise IndexError("Send index out of range")
-
-        track.mixer_device.sends[send_index].value = value
-        return {"track_index": track_index, "send_index": send_index, "value": value}
     
     def _create_midi_track(self, index):
         """Create a new MIDI track at the specified index"""

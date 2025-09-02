@@ -25,6 +25,14 @@ from MCP_Server.server import (
     set_volume,
     set_panning,
     set_send,
+    create_audio_track,
+    create_return_track,
+    delete_track,
+    search_browser,
+    group_tracks,
+    generate_midi,
+    send_note_on,
+    send_note_off,
     create_midi_track,
     set_track_name,
     create_clip,
@@ -259,6 +267,134 @@ class TestAbletonMCPServer(unittest.TestCase):
         # Assert
         mock_conn.send_command.assert_called_once_with("set_send", {"track_index": 0, "send_index": 0, "value": 0.8})
         self.assertEqual(result_str, "Set send 0 of track 0 to 0.8")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_create_audio_track(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+        mock_conn.send_command.return_value = {"index": 1, "name": "Audio"}
+
+        # Act
+        result_str = create_audio_track(self.ctx, index=1)
+
+        # Assert
+        mock_conn.send_command.assert_called_once_with("create_audio_track", {"index": 1})
+        self.assertEqual(result_str, "Created new audio track: Audio")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_create_return_track(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+        mock_conn.send_command.return_value = {"index": 0, "name": "A Reverb"}
+
+        # Act
+        result_str = create_return_track(self.ctx)
+
+        # Assert
+        mock_conn.send_command.assert_called_once_with("create_return_track")
+        self.assertEqual(result_str, "Created new return track: A Reverb")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_delete_track(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+        mock_conn.send_command.return_value = {"deleted": True, "track_index": 1}
+
+        # Act
+        result_str = delete_track(self.ctx, track_index=1)
+
+        # Assert
+        mock_conn.send_command.assert_called_once_with("delete_track", {"track_index": 1})
+        self.assertEqual(result_str, "Deleted track 1")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_search_browser(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+        expected_response = [
+            {
+                "name": "Simpler",
+                "uri": "query:Synths#Simpler",
+                "is_folder": False,
+                "is_loadable": True,
+                "path": "Instruments/Simpler"
+            }
+        ]
+        mock_conn.send_command.return_value = expected_response
+
+        # Act
+        result_str = search_browser(self.ctx, query="Simpler")
+        result = json.loads(result_str)
+
+        # Assert
+        mock_conn.send_command.assert_called_once_with("search_browser", {"query": "Simpler"})
+        self.assertEqual(result, expected_response)
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_group_tracks(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+        mock_conn.send_command.return_value = {"grouped": True, "group_track_index": 2, "name": "Group 1"}
+
+        # Act
+        result_str = group_tracks(self.ctx, track_indices=[0, 1])
+
+        # Assert
+        mock_conn.send_command.assert_called_once_with("group_tracks", {"track_indices": [0, 1]})
+        self.assertEqual(result_str, "Grouped tracks [0, 1] into new track 'Group 1'")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_generate_midi(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+
+        # Mock the send_command to simulate the two calls made by generate_midi
+        mock_conn.send_command.side_effect = [
+            {"name": "new_clip", "length": 4.0},  # Response from create_clip
+            {"note_count": 8}  # Response from add_notes_to_clip
+        ]
+
+        # Act
+        result_str = generate_midi(self.ctx, track_index=0, clip_index=0, description="a simple C major scale")
+
+        # Assert
+        self.assertEqual(mock_conn.send_command.call_count, 2)
+        mock_conn.send_command.assert_any_call("create_clip", {"track_index": 0, "clip_index": 0, "length": 4.0})
+        self.assertEqual(result_str, "Generated MIDI clip with 8 notes on track 0, slot 0")
+
+    @patch('MCP_Server.server.MidiClient')
+    def test_send_note_on(self, MockMidiClient):
+        # Arrange
+        mock_midi_client = MockMidiClient.return_value
+        import MCP_Server.server
+        MCP_Server.server._midi_client = mock_midi_client
+
+        # Act
+        result_str = send_note_on(self.ctx, channel=0, note=60, velocity=100)
+
+        # Assert
+        mock_midi_client.send_note_on.assert_called_once_with(0, 60, 100)
+        self.assertEqual(result_str, "Sent note on: channel=0, note=60, velocity=100")
+
+    @patch('MCP_Server.server.MidiClient')
+    def test_send_note_off(self, MockMidiClient):
+        # Arrange
+        mock_midi_client = MockMidiClient.return_value
+        import MCP_Server.server
+        MCP_Server.server._midi_client = mock_midi_client
+
+        # Act
+        result_str = send_note_off(self.ctx, channel=0, note=60)
+
+        # Assert
+        mock_midi_client.send_note_off.assert_called_once_with(0, 60)
+        self.assertEqual(result_str, "Sent note off: channel=0, note=60")
 
 if __name__ == '__main__':
     # Need to make sure the MCP_Server directory is in the path

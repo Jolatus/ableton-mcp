@@ -1,5 +1,6 @@
 # ableton_mcp_server.py
 from mcp.server.fastmcp import FastMCP, Context
+from .midi_client import MidiClient
 import socket
 import json
 import logging
@@ -164,6 +165,7 @@ class AbletonConnection:
 @asynccontextmanager
 async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
     """Manage server startup and shutdown lifecycle"""
+    global _midi_client
     try:
         logger.info("AbletonMCP server starting up")
         
@@ -173,6 +175,8 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
         except Exception as e:
             logger.warning(f"Could not connect to Ableton on startup: {str(e)}")
             logger.warning("Make sure the Ableton Remote Script is running")
+
+        _midi_client = MidiClient()
         
         yield {}
     finally:
@@ -181,6 +185,12 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
             logger.info("Disconnecting from Ableton on shutdown")
             _ableton_connection.disconnect()
             _ableton_connection = None
+
+        if _midi_client:
+            logger.info("Disconnecting from MIDI client on shutdown")
+            _midi_client.disconnect()
+            _midi_client = None
+
         logger.info("AbletonMCP server shut down")
 
 # Create the MCP server with lifespan support
@@ -191,6 +201,7 @@ mcp = FastMCP(
 
 # Global connection for resources
 _ableton_connection = None
+_midi_client = None
 
 def get_ableton_connection():
     """Get or create a persistent Ableton connection"""
@@ -490,6 +501,163 @@ def create_midi_track(ctx: Context, index: int = -1) -> str:
     except Exception as e:
         logger.error(f"Error creating MIDI track: {str(e)}")
         return f"Error creating MIDI track: {str(e)}"
+
+@mcp.tool()
+def create_audio_track(ctx: Context, index: int = -1) -> str:
+    """
+    Create a new audio track in the Ableton session.
+
+    Parameters:
+    - index: The index to insert the track at (-1 = end of list)
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("create_audio_track", {"index": index})
+        return f"Created new audio track: {result.get('name', 'unknown')}"
+    except Exception as e:
+        logger.error(f"Error creating audio track: {str(e)}")
+        return f"Error creating audio track: {str(e)}"
+
+@mcp.tool()
+def create_return_track(ctx: Context) -> str:
+    """Create a new return track in the Ableton session."""
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("create_return_track")
+        return f"Created new return track: {result.get('name', 'unknown')}"
+    except Exception as e:
+        logger.error(f"Error creating return track: {str(e)}")
+        return f"Error creating return track: {str(e)}"
+
+@mcp.tool()
+def delete_track(ctx: Context, track_index: int) -> str:
+    """
+    Delete a track.
+
+    Parameters:
+    - track_index: The index of the track to delete
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("delete_track", {"track_index": track_index})
+        return f"Deleted track {track_index}"
+    except Exception as e:
+        logger.error(f"Error deleting track: {str(e)}")
+        return f"Error deleting track: {str(e)}"
+
+@mcp.tool()
+def search_browser(ctx: Context, query: str) -> str:
+    """
+    Search the browser for items matching the query.
+
+    Parameters:
+    - query: The search query
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("search_browser", {"query": query})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error searching browser: {str(e)}")
+        return f"Error searching browser: {str(e)}"
+
+@mcp.tool()
+def group_tracks(ctx: Context, track_indices: List[int]) -> str:
+    """
+    Group tracks together.
+
+    Parameters:
+    - track_indices: A list of track indices to group
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("group_tracks", {"track_indices": track_indices})
+        return f"Grouped tracks {track_indices} into new track '{result.get('name', 'unknown')}'"
+    except Exception as e:
+        logger.error(f"Error grouping tracks: {str(e)}")
+        return f"Error grouping tracks: {str(e)}"
+
+@mcp.tool()
+def generate_midi(ctx: Context, track_index: int, clip_index: int, description: str) -> str:
+    """
+    Generates a MIDI clip based on a description.
+
+    Parameters:
+    - track_index: The index of the track to create the clip on
+    - clip_index: The index of the clip slot to create the clip in
+    - description: A description of the MIDI to generate (e.g., "a simple C major scale")
+    """
+    try:
+        # For now, we'll just parse the description in a very simple way.
+        # In the future, this could be replaced with a call to an LLM.
+        notes = []
+        if "c major scale" in description.lower():
+            notes = [
+                {"pitch": 60, "start_time": 0.0, "duration": 0.5, "velocity": 100, "mute": False},
+                {"pitch": 62, "start_time": 0.5, "duration": 0.5, "velocity": 100, "mute": False},
+                {"pitch": 64, "start_time": 1.0, "duration": 0.5, "velocity": 100, "mute": False},
+                {"pitch": 65, "start_time": 1.5, "duration": 0.5, "velocity": 100, "mute": False},
+                {"pitch": 67, "start_time": 2.0, "duration": 0.5, "velocity": 100, "mute": False},
+                {"pitch": 69, "start_time": 2.5, "duration": 0.5, "velocity": 100, "mute": False},
+                {"pitch": 71, "start_time": 3.0, "duration": 0.5, "velocity": 100, "mute": False},
+                {"pitch": 72, "start_time": 3.5, "duration": 0.5, "velocity": 100, "mute": False},
+            ]
+        else:
+            return "I'm sorry, I can only generate a C major scale right now."
+
+        ableton = get_ableton_connection()
+
+        # First, create a new clip
+        ableton.send_command("create_clip", {"track_index": track_index, "clip_index": clip_index, "length": 4.0})
+
+        # Then, add the notes to the clip
+        result = ableton.send_command("add_notes_to_clip", {
+            "track_index": track_index,
+            "clip_index": clip_index,
+            "notes": notes
+        })
+
+        return f"Generated MIDI clip with {len(notes)} notes on track {track_index}, slot {clip_index}"
+    except Exception as e:
+        logger.error(f"Error generating MIDI: {str(e)}")
+        return f"Error generating MIDI: {str(e)}"
+
+@mcp.tool()
+def send_note_on(ctx: Context, channel: int, note: int, velocity: int) -> str:
+    """
+    Send a MIDI note-on message.
+
+    Parameters:
+    - channel: The MIDI channel (0-15)
+    - note: The MIDI note number (0-127)
+    - velocity: The note velocity (0-127)
+    """
+    try:
+        if not _midi_client:
+            raise Exception("MIDI client not initialized")
+        _midi_client.send_note_on(channel, note, velocity)
+        return f"Sent note on: channel={channel}, note={note}, velocity={velocity}"
+    except Exception as e:
+        logger.error(f"Error sending note on: {str(e)}")
+        return f"Error sending note on: {str(e)}"
+
+@mcp.tool()
+def send_note_off(ctx: Context, channel: int, note: int) -> str:
+    """
+    Send a MIDI note-off message.
+
+    Parameters:
+    - channel: The MIDI channel (0-15)
+    - note: The MIDI note number (0-127)
+    """
+    try:
+        if not _midi_client:
+            raise Exception("MIDI client not initialized")
+        _midi_client.send_note_off(channel, note)
+        return f"Sent note off: channel={channel}, note={note}"
+    except Exception as e:
+        logger.error(f"Error sending note off: {str(e)}")
+        return f"Error sending note off: {str(e)}"
 
 
 @mcp.tool()
