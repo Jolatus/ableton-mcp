@@ -50,6 +50,10 @@ from MCP_Server.server import (
     randomize_device_parameters,
     save_device_parameters_to_json,
     load_device_parameters_from_json,
+    setup_sidechain,
+    humanize_clip,
+    build_a_drum_beat,
+    harmonize_melody,
     get_browser_tree,
     get_browser_items_at_path,
     load_drum_kit,
@@ -508,6 +512,86 @@ class TestAbletonMCPServer(unittest.TestCase):
             "parameters": [{"name": "Volume", "value": 0.5}]
         })
         self.assertEqual(result_str, f"Loaded 1 parameters from {filepath}")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_setup_sidechain(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+        mock_conn.send_command.return_value = {"sidechain_setup": True, "source_track": "Kick", "target_track": "Bass"}
+
+        # Act
+        result_str = setup_sidechain(self.ctx, source_track_index=0, target_track_index=1)
+
+        # Assert
+        mock_conn.send_command.assert_called_once_with("setup_sidechain", {"source_track_index": 0, "target_track_index": 1})
+        self.assertEqual(result_str, "Setup sidechain from track Kick to track Bass")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_humanize_clip(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+        mock_conn.send_command.return_value = {"humanized": True}
+
+        # Act
+        result_str = humanize_clip(self.ctx, track_index=0, clip_index=0)
+
+        # Assert
+        mock_conn.send_command.assert_called_once_with("humanize_clip", {"track_index": 0, "clip_index": 0})
+        self.assertEqual(result_str, "Humanized clip at track 0, slot 0")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_build_a_drum_beat(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+
+        # Mock the send_command to simulate the calls made by build_a_drum_beat
+        mock_conn.send_command.side_effect = [
+            {"index": 1, "name": "MIDI"},  # Response from create_midi_track
+            [{"uri": "query:Drum Racks#808 Core Kit"}],  # Response from search_browser
+            {"loaded": True},  # Response from load_browser_item
+            {"name": "new_clip", "length": 4.0},  # Response from create_clip
+            {"note_count": 4}  # Response from add_notes_to_clip
+        ]
+
+        # Act
+        result_str = build_a_drum_beat(self.ctx, genre="trap")
+
+        # Assert
+        self.assertEqual(mock_conn.send_command.call_count, 5)
+        mock_conn.send_command.assert_any_call("create_midi_track", {"index": -1})
+        mock_conn.send_command.assert_any_call("search_browser", {"query": "808 Core Kit"})
+        mock_conn.send_command.assert_any_call("load_browser_item", {"track_index": 1, "item_uri": "query:Drum Racks#808 Core Kit"})
+        mock_conn.send_command.assert_any_call("create_clip", {"track_index": 1, "clip_index": 0, "length": 4.0})
+        self.assertEqual(result_str, "Built a trap drum beat on track 1")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_harmonize_melody(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+
+        # Mock the send_command to simulate the calls made by harmonize_melody
+        mock_conn.send_command.side_effect = [
+            {"index": 1, "name": "MIDI"},  # Response from create_midi_track
+            [{"uri": "query:Sounds#Piano & Keys"}],  # Response from search_browser
+            {"loaded": True},  # Response from load_browser_item
+            {"name": "new_clip", "length": 4.0},  # Response from create_clip
+            {"note_count": 12}  # Response from add_notes_to_clip
+        ]
+
+        # Act
+        result_str = harmonize_melody(self.ctx, track_index=0, clip_index=0)
+
+        # Assert
+        self.assertEqual(mock_conn.send_command.call_count, 5)
+        mock_conn.send_command.assert_any_call("create_midi_track", {"index": -1})
+        mock_conn.send_command.assert_any_call("search_browser", {"query": "Grand Piano"})
+        mock_conn.send_command.assert_any_call("load_browser_item", {"track_index": 1, "item_uri": "query:Sounds#Piano & Keys"})
+        mock_conn.send_command.assert_any_call("create_clip", {"track_index": 1, "clip_index": 0, "length": 4.0})
+        self.assertEqual(result_str, "Harmonized melody on track 1")
 
 if __name__ == '__main__':
     # Need to make sure the MCP_Server directory is in the path

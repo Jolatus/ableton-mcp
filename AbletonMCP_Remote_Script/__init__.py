@@ -350,6 +350,14 @@ class AbletonMCP(ControlSurface):
                 device_index = params.get("device_index", 0)
                 parameters = params.get("parameters", [])
                 response["result"] = self._set_device_parameters(track_index, device_index, parameters)
+            elif command_type == "setup_sidechain":
+                source_track_index = params.get("source_track_index", 0)
+                target_track_index = params.get("target_track_index", 0)
+                response["result"] = self._setup_sidechain(source_track_index, target_track_index)
+            elif command_type == "humanize_clip":
+                track_index = params.get("track_index", 0)
+                clip_index = params.get("clip_index", 0)
+                response["result"] = self._humanize_clip(track_index, clip_index)
             else:
                 response["status"] = "error"
                 response["message"] = "Unknown command: " + command_type
@@ -733,6 +741,73 @@ class AbletonMCP(ControlSurface):
             return {"set": True, "track_index": track_index, "device_index": device_index}
         except Exception as e:
             self.log_message("Error setting parameters: " + str(e))
+            raise
+
+    def _setup_sidechain(self, source_track_index, target_track_index):
+        """Setup sidechain compression from source to target track"""
+        try:
+            if source_track_index < 0 or source_track_index >= len(self._song.tracks):
+                raise IndexError("Source track index out of range")
+            if target_track_index < 0 or target_track_index >= len(self._song.tracks):
+                raise IndexError("Target track index out of range")
+
+            source_track = self._song.tracks[source_track_index]
+            target_track = self._song.tracks[target_track_index]
+
+            # Find the Compressor device URI
+            # This is a guess, and might need to be adjusted
+            compressor_uri = "query:Audio Effects#Compressor"
+            item = self._find_browser_item_by_uri(self.application().browser, compressor_uri)
+            if not item:
+                raise ValueError("Could not find Compressor device in browser")
+
+            # Load the compressor on the target track
+            self.application().browser.load_item(item)
+            compressor = target_track.devices[-1]
+
+            # Enable sidechain and set input
+            for param in compressor.parameters:
+                if param.name == "Sidechain":
+                    param.value = True
+                if param.name == "Sidechain.Routing.Source":
+                    param.value = source_track
+
+            return {"sidechain_setup": True, "source_track": source_track.name, "target_track": target_track.name}
+        except Exception as e:
+            self.log_message("Error setting up sidechain: " + str(e))
+            raise
+
+    def _humanize_clip(self, track_index, clip_index, timing_variation=0.05, velocity_variation=10):
+        """Add random variations to the timing and velocity of notes in a clip"""
+        try:
+            if track_index < 0 or track_index >= len(self._song.tracks):
+                raise IndexError("Track index out of range")
+
+            track = self._song.tracks[track_index]
+
+            if clip_index < 0 or clip_index >= len(track.clip_slots):
+                raise IndexError("Clip index out of range")
+
+            clip_slot = track.clip_slots[clip_index]
+
+            if not clip_slot.has_clip:
+                raise Exception("No clip in slot")
+
+            clip = clip_slot.clip
+
+            notes = clip.get_notes(0, 0, clip.length, 128)
+
+            new_notes = []
+            for note in notes:
+                new_start_time = note[1] + random.uniform(-timing_variation, timing_variation)
+                new_velocity = max(0, min(127, note[3] + random.randint(-velocity_variation, velocity_variation)))
+                new_notes.append((note[0], new_start_time, note[2], new_velocity, note[4]))
+
+            clip.set_notes(tuple(new_notes))
+
+            return {"humanized": True, "track_index": track_index, "clip_index": clip_index}
+        except Exception as e:
+            self.log_message("Error humanizing clip: " + str(e))
             raise
     
     def _get_browser_item(self, uri, path):

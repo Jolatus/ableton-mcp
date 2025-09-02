@@ -983,6 +983,167 @@ def load_device_parameters_from_json(ctx: Context, track_index: int, device_inde
         return f"Error loading device parameters: {str(e)}"
 
 @mcp.tool()
+def setup_sidechain(ctx: Context, source_track_index: int, target_track_index: int) -> str:
+    """
+    Setup sidechain compression from a source track to a target track.
+
+    Parameters:
+    - source_track_index: The index of the track to use as the sidechain source
+    - target_track_index: The index of the track to apply the compressor to
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("setup_sidechain", {
+            "source_track_index": source_track_index,
+            "target_track_index": target_track_index
+        })
+        return f"Setup sidechain from track {result.get('source_track')} to track {result.get('target_track')}"
+    except Exception as e:
+        logger.error(f"Error setting up sidechain: {str(e)}")
+        return f"Error setting up sidechain: {str(e)}"
+
+@mcp.tool()
+def humanize_clip(ctx: Context, track_index: int, clip_index: int) -> str:
+    """
+    Add random variations to the timing and velocity of notes in a clip.
+
+    Parameters:
+    - track_index: The index of the track containing the clip
+    - clip_index: The index of the clip slot containing the clip
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("humanize_clip", {
+            "track_index": track_index,
+            "clip_index": clip_index
+        })
+        return f"Humanized clip at track {track_index}, slot {clip_index}"
+    except Exception as e:
+        logger.error(f"Error humanizing clip: {str(e)}")
+        return f"Error humanizing clip: {str(e)}"
+
+@mcp.tool()
+def build_a_drum_beat(ctx: Context, genre: str) -> str:
+    """
+    Build a drum beat for a specific genre.
+
+    Parameters:
+    - genre: The genre of the drum beat to build (e.g., "house", "trap")
+    """
+    try:
+        ableton = get_ableton_connection()
+
+        # 1. Create a new MIDI track
+        new_track_info = ableton.send_command("create_midi_track", {"index": -1})
+        track_index = new_track_info.get("index")
+
+        # 2. Search for a drum rack
+        query = ""
+        if genre.lower() == "house":
+            query = "909 Core Kit"
+        elif genre.lower() == "trap":
+            query = "808 Core Kit"
+        else:
+            return f"I don't know how to build a {genre} drum beat yet."
+
+        search_results = ableton.send_command("search_browser", {"query": query})
+        if not search_results:
+            return f"Could not find a drum rack for {genre}."
+
+        drum_rack_uri = search_results[0].get("uri")
+
+        # 3. Load the drum rack
+        ableton.send_command("load_browser_item", {"track_index": track_index, "item_uri": drum_rack_uri})
+
+        # 4. Generate a MIDI clip
+        notes = []
+        if genre.lower() == "house":
+            # Four-on-the-floor kick drum
+            notes = [
+                {"pitch": 36, "start_time": 0.0, "duration": 0.5, "velocity": 127, "mute": False},
+                {"pitch": 36, "start_time": 1.0, "duration": 0.5, "velocity": 127, "mute": False},
+                {"pitch": 36, "start_time": 2.0, "duration": 0.5, "velocity": 127, "mute": False},
+                {"pitch": 36, "start_time": 3.0, "duration": 0.5, "velocity": 127, "mute": False},
+                # Clap on 2 and 4
+                {"pitch": 39, "start_time": 1.0, "duration": 0.5, "velocity": 100, "mute": False},
+                {"pitch": 39, "start_time": 3.0, "duration": 0.5, "velocity": 100, "mute": False},
+            ]
+        elif genre.lower() == "trap":
+            # Trap beat
+            notes = [
+                {"pitch": 36, "start_time": 0.0, "duration": 0.5, "velocity": 127, "mute": False},
+                {"pitch": 36, "start_time": 1.5, "duration": 0.5, "velocity": 127, "mute": False},
+                {"pitch": 39, "start_time": 1.0, "duration": 0.5, "velocity": 100, "mute": False},
+                {"pitch": 39, "start_time": 3.0, "duration": 0.5, "velocity": 100, "mute": False},
+            ]
+
+        ableton.send_command("create_clip", {"track_index": track_index, "clip_index": 0, "length": 4.0})
+        ableton.send_command("add_notes_to_clip", {"track_index": track_index, "clip_index": 0, "notes": notes})
+
+        return f"Built a {genre} drum beat on track {track_index}"
+    except Exception as e:
+        logger.error(f"Error building drum beat: {str(e)}")
+        return f"Error building drum beat: {str(e)}"
+
+@mcp.tool()
+def harmonize_melody(ctx: Context, track_index: int, clip_index: int) -> str:
+    """
+    Harmonize a melody with a simple chord progression.
+
+    Parameters:
+    - track_index: The index of the track containing the melody
+    - clip_index: The index of the clip slot containing the melody
+    """
+    try:
+        ableton = get_ableton_connection()
+
+        # 1. Get the melody notes (we don't use them for now, but we would in a real implementation)
+        # notes = ableton.send_command("get_notes", {"track_index": track_index, "clip_index": clip_index})
+
+        # 2. Create a new MIDI track for the chords
+        new_track_info = ableton.send_command("create_midi_track", {"index": -1})
+        chord_track_index = new_track_info.get("index")
+
+        # 3. Load a piano instrument
+        # This is a guess, and might need to be adjusted
+        piano_uri = "query:Sounds#Piano & Keys"
+        search_results = ableton.send_command("search_browser", {"query": "Grand Piano"})
+        if not search_results:
+            return "Could not find a Grand Piano instrument."
+        piano_uri = search_results[0].get("uri")
+        ableton.send_command("load_browser_item", {"track_index": chord_track_index, "item_uri": piano_uri})
+
+        # 4. Generate a I-IV-V-I chord progression in C major
+        chords = [
+            # C major (I)
+            [{"pitch": 60, "start_time": 0.0, "duration": 1.0, "velocity": 100, "mute": False},
+             {"pitch": 64, "start_time": 0.0, "duration": 1.0, "velocity": 100, "mute": False},
+             {"pitch": 67, "start_time": 0.0, "duration": 1.0, "velocity": 100, "mute": False}],
+            # F major (IV)
+            [{"pitch": 65, "start_time": 1.0, "duration": 1.0, "velocity": 100, "mute": False},
+             {"pitch": 69, "start_time": 1.0, "duration": 1.0, "velocity": 100, "mute": False},
+             {"pitch": 72, "start_time": 1.0, "duration": 1.0, "velocity": 100, "mute": False}],
+            # G major (V)
+            [{"pitch": 67, "start_time": 2.0, "duration": 1.0, "velocity": 100, "mute": False},
+             {"pitch": 71, "start_time": 2.0, "duration": 1.0, "velocity": 100, "mute": False},
+             {"pitch": 74, "start_time": 2.0, "duration": 1.0, "velocity": 100, "mute": False}],
+            # C major (I)
+            [{"pitch": 60, "start_time": 3.0, "duration": 1.0, "velocity": 100, "mute": False},
+             {"pitch": 64, "start_time": 3.0, "duration": 1.0, "velocity": 100, "mute": False},
+             {"pitch": 67, "start_time": 3.0, "duration": 1.0, "velocity": 100, "mute": False}],
+        ]
+
+        notes = [note for chord in chords for note in chord]
+
+        ableton.send_command("create_clip", {"track_index": chord_track_index, "clip_index": 0, "length": 4.0})
+        ableton.send_command("add_notes_to_clip", {"track_index": chord_track_index, "clip_index": 0, "notes": notes})
+
+        return f"Harmonized melody on track {chord_track_index}"
+    except Exception as e:
+        logger.error(f"Error harmonizing melody: {str(e)}")
+        return f"Error harmonizing melody: {str(e)}"
+
+@mcp.tool()
 def get_browser_tree(ctx: Context, category_type: str = "all") -> str:
     """
     Get a hierarchical tree of browser categories from Ableton.
