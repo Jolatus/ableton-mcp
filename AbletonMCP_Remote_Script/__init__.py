@@ -326,6 +326,10 @@ class AbletonMCP(ControlSurface):
             elif command_type == "get_browser_items_at_path":
                 path = params.get("path", "")
                 response["result"] = self.get_browser_items_at_path(path)
+            elif command_type == "get_device_details":
+                track_index = params.get("track_index", 0)
+                device_index = params.get("device_index", 0)
+                response["result"] = self._get_device_details(track_index, device_index)
             else:
                 response["status"] = "error"
                 response["message"] = "Unknown command: " + command_type
@@ -389,13 +393,8 @@ class AbletonMCP(ControlSurface):
             # Get devices
             devices = []
             for device_index, device in enumerate(track.devices):
-                devices.append({
-                    "index": device_index,
-                    "name": device.name,
-                    "class_name": device.class_name,
-                    "type": self._get_device_type(device)
-                })
-            
+                devices.append(self._get_device_details(track_index, device_index))
+
             result = {
                 "index": track_index,
                 "name": track.name,
@@ -413,6 +412,61 @@ class AbletonMCP(ControlSurface):
         except Exception as e:
             self.log_message("Error getting track info: " + str(e))
             raise
+
+    def _get_device_parameters(self, device):
+        """Get the parameters of a device"""
+        parameters = []
+        if device and hasattr(device, 'parameters'):
+            for param in device.parameters:
+                try:
+                    # Check if the parameter is automatable and has a value
+                    if hasattr(param, 'value') and hasattr(param, 'name') and param.name:
+                        parameter_info = {
+                            "name": param.name,
+                            "value": param.value
+                        }
+                        if hasattr(param, 'min'):
+                            parameter_info["min"] = param.min
+                        if hasattr(param, 'max'):
+                            parameter_info["max"] = param.max
+                        if hasattr(param, 'is_quantized'):
+                            parameter_info["is_quantized"] = param.is_quantized
+
+                        parameters.append(parameter_info)
+                except Exception as e:
+                    # Some parameters might not be accessible
+                    self.log_message("Could not access parameter on device {}: {}".format(device.name, str(e)))
+        return parameters
+
+    def _get_device_details(self, track_index, device_index):
+        """Get detailed information about a single device on a track"""
+        if track_index < 0 or track_index >= len(self._song.tracks):
+            raise IndexError("Track index out of range")
+
+        track = self._song.tracks[track_index]
+
+        if device_index < 0 or device_index >= len(track.devices):
+            raise IndexError("Device index out of range")
+
+        device = track.devices[device_index]
+
+        # Get the "on" parameter if it exists
+        on_parameter = None
+        for param in device.parameters:
+            if param.name.lower() == "device on":
+                on_parameter = param.value
+                break
+
+        device_info = {
+            "index": device_index,
+            "name": device.name,
+            "class_name": device.class_name,
+            "type": self._get_device_type(device),
+            "is_active": on_parameter,
+            "parameters": self._get_device_parameters(device)
+        }
+
+        return device_info
     
     def _create_midi_track(self, index):
         """Create a new MIDI track at the specified index"""
