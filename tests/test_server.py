@@ -5,13 +5,15 @@ import sys
 import asyncio
 from mcp.server.fastmcp import FastMCP
 
+sys.path.insert(0, '.')
+
 # A mock context object
 class MockContext:
     def get(self, key):
         return None
 
 # Import the functions to be tested
-from MCP_Server.server import (
+from MCP_Server.ableton_mcp_server import (
     mcp,
     get_session_info,
     get_track_info,
@@ -64,7 +66,7 @@ class TestAbletonMCPServer(unittest.TestCase):
     def setUp(self):
         self.ctx = MockContext()
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_get_device_details(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -91,7 +93,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("get_device_details", {"track_index": 0, "device_index": 0})
         self.assertEqual(result, expected_response)
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_get_track_info_with_devices(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -124,7 +126,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("get_track_info", {"track_index": 0})
         self.assertEqual(result, expected_response)
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_set_device_parameter(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -150,7 +152,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         })
         self.assertEqual(result_str, "Set parameter 'Volume' on device 0 of track 0 to 0.5")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_get_scene_info(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -166,7 +168,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("get_scene_info")
         self.assertEqual(result, expected_response)
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_fire_scene(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -180,7 +182,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("fire_scene", {"scene_index": 0})
         self.assertEqual(result_str, "Fired scene 0")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_create_scene(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -194,7 +196,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("create_scene", {"scene_index": 1})
         self.assertEqual(result_str, "Created scene at index 1")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_rename_scene(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -208,7 +210,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("rename_scene", {"scene_index": 0, "name": "New Name"})
         self.assertEqual(result_str, "Renamed scene 0 to 'New Name'")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_delete_clip(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -222,7 +224,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("delete_clip", {"track_index": 0, "clip_index": 0})
         self.assertEqual(result_str, "Deleted clip at track 0, slot 0")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_set_clip_color(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -236,7 +238,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("set_clip_color", {"track_index": 0, "clip_index": 0, "color": 16711680})
         self.assertEqual(result_str, "Set color of clip at track 0, slot 0 to 16711680")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_set_volume(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -250,7 +252,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("set_volume", {"track_index": 0, "volume": 0.5})
         self.assertEqual(result_str, "Set volume of track 0 to 0.5")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_set_panning(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -264,7 +266,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("set_panning", {"track_index": 0, "panning": -0.5})
         self.assertEqual(result_str, "Set panning of track 0 to -0.5")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_set_send(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -278,7 +280,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("set_send", {"track_index": 0, "send_index": 0, "value": 0.8})
         self.assertEqual(result_str, "Set send 0 of track 0 to 0.8")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_create_audio_track(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -292,7 +294,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("create_audio_track", {"index": 1})
         self.assertEqual(result_str, "Created new audio track: Audio")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_create_return_track(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -306,7 +308,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("create_return_track")
         self.assertEqual(result_str, "Created new return track: A Reverb")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_delete_track(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -320,7 +322,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("delete_track", {"track_index": 1})
         self.assertEqual(result_str, "Deleted track 1")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_search_browser(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -344,7 +346,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("search_browser", {"query": "Simpler"})
         self.assertEqual(result, expected_response)
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_group_tracks(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -358,7 +360,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("group_tracks", {"track_indices": [0, 1]})
         self.assertEqual(result_str, "Grouped tracks [0, 1] into new track 'Group 1'")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_generate_midi(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -378,12 +380,12 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_any_call("create_clip", {"track_index": 0, "clip_index": 0, "length": 4.0})
         self.assertEqual(result_str, "Generated MIDI clip with 8 notes on track 0, slot 0")
 
-    @patch('MCP_Server.server.MidiClient')
+    @patch('MCP_Server.ableton_mcp_server.MidiClient')
     def test_send_note_on(self, MockMidiClient):
         # Arrange
         mock_midi_client = MockMidiClient.return_value
-        import MCP_Server.server
-        MCP_Server.server._midi_client = mock_midi_client
+        import MCP_Server.ableton_mcp_server
+        MCP_Server.ableton_mcp_server._midi_client = mock_midi_client
 
         # Act
         result_str = send_note_on(self.ctx, channel=0, note=60, velocity=100)
@@ -392,12 +394,12 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_midi_client.send_note_on.assert_called_once_with(0, 60, 100)
         self.assertEqual(result_str, "Sent note on: channel=0, note=60, velocity=100")
 
-    @patch('MCP_Server.server.MidiClient')
+    @patch('MCP_Server.ableton_mcp_server.MidiClient')
     def test_send_note_off(self, MockMidiClient):
         # Arrange
         mock_midi_client = MockMidiClient.return_value
-        import MCP_Server.server
-        MCP_Server.server._midi_client = mock_midi_client
+        import MCP_Server.ableton_mcp_server
+        MCP_Server.ableton_mcp_server._midi_client = mock_midi_client
 
         # Act
         result_str = send_note_off(self.ctx, channel=0, note=60)
@@ -406,12 +408,12 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_midi_client.send_note_off.assert_called_once_with(0, 60)
         self.assertEqual(result_str, "Sent note off: channel=0, note=60")
 
-    @patch('MCP_Server.server.SocketMidiServer')
+    @patch('MCP_Server.ableton_mcp_server.SocketMidiServer')
     def test_get_midi_messages(self, MockSocketMidiServer):
         # Arrange
         mock_socket_midi_server = MockSocketMidiServer.return_value
-        import MCP_Server.server
-        MCP_Server.server._socket_midi_server = mock_socket_midi_server
+        import MCP_Server.ableton_mcp_server
+        MCP_Server.ableton_mcp_server._socket_midi_server = mock_socket_midi_server
 
         expected_messages = [{"type": "midi", "message": [144, 60, 100], "deltatime": 0.0}]
         mock_socket_midi_server.get_messages.return_value = expected_messages
@@ -424,7 +426,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_socket_midi_server.get_messages.assert_called_once()
         self.assertEqual(result, expected_messages)
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_undo(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -438,7 +440,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("undo")
         self.assertEqual(result_str, "Undone last action.")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_redo(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -452,7 +454,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("redo")
         self.assertEqual(result_str, "Redone last action.")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_randomize_device_parameters(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -466,7 +468,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("randomize_device_parameters", {"track_index": 0, "device_index": 0})
         self.assertEqual(result_str, "Randomized parameters for device 0 on track 0")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     @patch('builtins.open', new_callable=unittest.mock.mock_open)
     @patch('json.dump')
     def test_save_device_parameters_to_json(self, mock_json_dump, mock_open, mock_get_ableton_connection):
@@ -488,7 +490,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_json_dump.assert_called_once_with(expected_parameters, mock_open(), indent=2)
         self.assertEqual(result_str, f"Saved {len(expected_parameters)} parameters to {filepath}")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     @patch('builtins.open', new_callable=unittest.mock.mock_open, read_data='[{"name": "Volume", "value": 0.5}]')
     @patch('json.load')
     def test_load_device_parameters_from_json(self, mock_json_load, mock_open, mock_get_ableton_connection):
@@ -513,7 +515,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         })
         self.assertEqual(result_str, f"Loaded 1 parameters from {filepath}")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_setup_sidechain(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -527,7 +529,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("setup_sidechain", {"source_track_index": 0, "target_track_index": 1})
         self.assertEqual(result_str, "Setup sidechain from track Kick to track Bass")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_humanize_clip(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -541,7 +543,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_called_once_with("humanize_clip", {"track_index": 0, "clip_index": 0})
         self.assertEqual(result_str, "Humanized clip at track 0, slot 0")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_build_a_drum_beat(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()
@@ -567,7 +569,7 @@ class TestAbletonMCPServer(unittest.TestCase):
         mock_conn.send_command.assert_any_call("create_clip", {"track_index": 1, "clip_index": 0, "length": 4.0})
         self.assertEqual(result_str, "Built a trap drum beat on track 1")
 
-    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('MCP_Server.ableton_mcp_server.get_ableton_connection')
     def test_harmonize_melody(self, mock_get_ableton_connection):
         # Arrange
         mock_conn = MagicMock()

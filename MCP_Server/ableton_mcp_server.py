@@ -1,7 +1,8 @@
-# ableton_mcp_server.py
+# MCP_Server/server.py
 from mcp.server.fastmcp import FastMCP, Context
 from .midi_client import MidiClient
 from .socket_midi_server import SocketMidiServer
+from mcp.server.validation import get_validated_tool
 import socket
 import json
 import logging
@@ -12,7 +13,7 @@ from typing import AsyncIterator, Dict, Any, List, Union
 from functools import wraps
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, 
+logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("AbletonMCPServer")
 
@@ -21,12 +22,12 @@ class AbletonConnection:
     host: str
     port: int
     sock: socket.socket = None
-    
+
     def connect(self) -> bool:
         """Connect to the Ableton Remote Script socket server"""
         if self.sock:
             return True
-            
+
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.connect((self.host, self.port))
@@ -36,7 +37,7 @@ class AbletonConnection:
             logger.error(f"Failed to connect to Ableton: {str(e)}")
             self.sock = None
             return False
-    
+
     def disconnect(self):
         """Disconnect from the Ableton Remote Script"""
         if self.sock:
@@ -51,7 +52,7 @@ class AbletonConnection:
         """Receive the complete response, potentially in multiple chunks"""
         chunks = []
         sock.settimeout(15.0)  # Increased timeout for operations that might take longer
-        
+
         try:
             while True:
                 try:
@@ -60,9 +61,9 @@ class AbletonConnection:
                         if not chunks:
                             raise Exception("Connection closed before receiving any data")
                         break
-                    
+
                     chunks.append(chunk)
-                    
+
                     # Check if we've received a complete JSON object
                     try:
                         data = b''.join(chunks)
@@ -81,7 +82,7 @@ class AbletonConnection:
         except Exception as e:
             logger.error(f"Error during receive: {str(e)}")
             raise
-            
+
         # If we get here, we either timed out or broke out of the loop
         if chunks:
             data = b''.join(chunks)
@@ -98,12 +99,12 @@ class AbletonConnection:
         """Send a command to Ableton and return the response"""
         if not self.sock and not self.connect():
             raise ConnectionError("Not connected to Ableton")
-        
+
         command = {
             "type": command_type,
             "params": params or {}
         }
-        
+
         # Check if this is a state-modifying command
         is_modifying_command = command_type in [
             "create_midi_track", "create_audio_track", "set_track_name",
@@ -111,40 +112,40 @@ class AbletonConnection:
             "set_tempo", "fire_clip", "stop_clip", "set_device_parameter",
             "start_playback", "stop_playback", "load_instrument_or_effect"
         ]
-        
+
         try:
             logger.info(f"Sending command: {command_type} with params: {params}")
-            
+
             # Send the command
             self.sock.sendall(json.dumps(command).encode('utf-8'))
             logger.info(f"Command sent, waiting for response...")
-            
+
             # For state-modifying commands, add a small delay to give Ableton time to process
             if is_modifying_command:
                 import time
                 time.sleep(0.1)  # 100ms delay
-            
+
             # Set timeout based on command type
             timeout = 15.0 if is_modifying_command else 10.0
             self.sock.settimeout(timeout)
-            
+
             # Receive the response
             response_data = self.receive_full_response(self.sock)
             logger.info(f"Received {len(response_data)} bytes of data")
-            
+
             # Parse the response
             response = json.loads(response_data.decode('utf-8'))
             logger.info(f"Response parsed, status: {response.get('status', 'unknown')}")
-            
+
             if response.get("status") == "error":
                 logger.error(f"Ableton error: {response.get('message')}")
                 raise Exception(response.get("message", "Unknown error from Ableton"))
-            
+
             # For state-modifying commands, add another small delay after receiving response
             if is_modifying_command:
                 import time
                 time.sleep(0.1)  # 100ms delay
-            
+
             return response.get("result", {})
         except socket.timeout:
             logger.error("Socket timeout while waiting for response from Ableton")
@@ -171,7 +172,7 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
     global _midi_client, _socket_midi_server
     try:
         logger.info("AbletonMCP server starting up")
-        
+
         try:
             ableton = get_ableton_connection()
             logger.info("Successfully connected to Ableton on startup")
@@ -182,7 +183,7 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
         _midi_client = MidiClient()
         _socket_midi_server = SocketMidiServer()
         _socket_midi_server.start()
-        
+
         yield {}
     finally:
         global _ableton_connection
@@ -218,7 +219,7 @@ _socket_midi_server = None
 def get_ableton_connection():
     """Get or create a persistent Ableton connection"""
     global _ableton_connection
-    
+
     if _ableton_connection is not None:
         try:
             # Test the connection with a simple ping
@@ -234,7 +235,7 @@ def get_ableton_connection():
             except:
                 pass
             _ableton_connection = None
-    
+
     # Connection doesn't exist or is invalid, create a new one
     if _ableton_connection is None:
         # Try to connect up to 3 times with a short delay between attempts
@@ -245,7 +246,7 @@ def get_ableton_connection():
                 _ableton_connection = AbletonConnection(host="localhost", port=9877)
                 if _ableton_connection.connect():
                     logger.info("Created new persistent connection to Ableton")
-                    
+
                     # Validate connection with a simple command
                     try:
                         # Get session info as a test
@@ -264,23 +265,24 @@ def get_ableton_connection():
                 if _ableton_connection:
                     _ableton_connection.disconnect()
                     _ableton_connection = None
-            
+
             # Wait before trying again, but only if we have more attempts left
             if attempt < max_attempts:
                 import time
                 time.sleep(1.0)
-        
+
         # If we get here, all connection attempts failed
         if _ableton_connection is None:
             logger.error("Failed to connect to Ableton after multiple attempts")
             raise Exception("Could not connect to Ableton. Make sure the Remote Script is running.")
-    
+
     return _ableton_connection
 
 
 # Core Tool endpoints
 
 @mcp.tool()
+@get_validated_tool
 def get_session_info(ctx: Context) -> str:
     """Get detailed information about the current Ableton session"""
     try:
@@ -292,10 +294,11 @@ def get_session_info(ctx: Context) -> str:
         return f"Error getting session info: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def get_track_info(ctx: Context, track_index: int) -> str:
     """
     Get detailed information about a specific track in Ableton.
-    
+
     Parameters:
     - track_index: The index of the track to get information about
     """
@@ -308,6 +311,7 @@ def get_track_info(ctx: Context, track_index: int) -> str:
         return f"Error getting track info: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def get_device_details(ctx: Context, track_index: int, device_index: int) -> str:
     """
     Get detailed information about a specific device on a track.
@@ -328,6 +332,7 @@ def get_device_details(ctx: Context, track_index: int, device_index: int) -> str
         return f"Error getting device details: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def set_device_parameter(ctx: Context, track_index: int, device_index: int, parameter_name: str, value: float) -> str:
     """
     Set a parameter on a device.
@@ -352,6 +357,7 @@ def set_device_parameter(ctx: Context, track_index: int, device_index: int, para
         return f"Error setting device parameter: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def get_scene_info(ctx: Context) -> str:
     """Get information about all scenes"""
     try:
@@ -363,6 +369,7 @@ def get_scene_info(ctx: Context) -> str:
         return f"Error getting scene info: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def fire_scene(ctx: Context, scene_index: int) -> str:
     """
     Fire a scene.
@@ -379,6 +386,7 @@ def fire_scene(ctx: Context, scene_index: int) -> str:
         return f"Error firing scene: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def create_scene(ctx: Context, scene_index: int = -1) -> str:
     """
     Create a new scene.
@@ -395,6 +403,7 @@ def create_scene(ctx: Context, scene_index: int = -1) -> str:
         return f"Error creating scene: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def rename_scene(ctx: Context, scene_index: int, name: str) -> str:
     """
     Rename a scene.
@@ -412,6 +421,7 @@ def rename_scene(ctx: Context, scene_index: int, name: str) -> str:
         return f"Error renaming scene: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def delete_clip(ctx: Context, track_index: int, clip_index: int) -> str:
     """
     Delete a clip.
@@ -429,6 +439,7 @@ def delete_clip(ctx: Context, track_index: int, clip_index: int) -> str:
         return f"Error deleting clip: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def set_clip_color(ctx: Context, track_index: int, clip_index: int, color: int) -> str:
     """
     Set the color of a clip.
@@ -447,6 +458,7 @@ def set_clip_color(ctx: Context, track_index: int, clip_index: int, color: int) 
         return f"Error setting clip color: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def set_volume(ctx: Context, track_index: int, volume: float) -> str:
     """
     Set the volume of a track.
@@ -464,6 +476,7 @@ def set_volume(ctx: Context, track_index: int, volume: float) -> str:
         return f"Error setting volume: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def set_panning(ctx: Context, track_index: int, panning: float) -> str:
     """
     Set the panning of a track.
@@ -481,6 +494,7 @@ def set_panning(ctx: Context, track_index: int, panning: float) -> str:
         return f"Error setting panning: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def set_send(ctx: Context, track_index: int, send_index: int, value: float) -> str:
     """
     Set the send level of a track.
@@ -499,10 +513,11 @@ def set_send(ctx: Context, track_index: int, send_index: int, value: float) -> s
         return f"Error setting send: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def create_midi_track(ctx: Context, index: int = -1) -> str:
     """
     Create a new MIDI track in the Ableton session.
-    
+
     Parameters:
     - index: The index to insert the track at (-1 = end of list)
     """
@@ -515,6 +530,7 @@ def create_midi_track(ctx: Context, index: int = -1) -> str:
         return f"Error creating MIDI track: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def create_audio_track(ctx: Context, index: int = -1) -> str:
     """
     Create a new audio track in the Ableton session.
@@ -531,6 +547,7 @@ def create_audio_track(ctx: Context, index: int = -1) -> str:
         return f"Error creating audio track: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def create_return_track(ctx: Context) -> str:
     """Create a new return track in the Ableton session."""
     try:
@@ -542,6 +559,7 @@ def create_return_track(ctx: Context) -> str:
         return f"Error creating return track: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def delete_track(ctx: Context, track_index: int) -> str:
     """
     Delete a track.
@@ -558,6 +576,7 @@ def delete_track(ctx: Context, track_index: int) -> str:
         return f"Error deleting track: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def search_browser(ctx: Context, query: str) -> str:
     """
     Search the browser for items matching the query.
@@ -574,6 +593,7 @@ def search_browser(ctx: Context, query: str) -> str:
         return f"Error searching browser: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def group_tracks(ctx: Context, track_indices: List[int]) -> str:
     """
     Group tracks together.
@@ -590,6 +610,7 @@ def group_tracks(ctx: Context, track_indices: List[int]) -> str:
         return f"Error grouping tracks: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def generate_midi(ctx: Context, track_index: int, clip_index: int, description: str) -> str:
     """
     Generates a MIDI clip based on a description.
@@ -635,6 +656,7 @@ def generate_midi(ctx: Context, track_index: int, clip_index: int, description: 
         return f"Error generating MIDI: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def send_note_on(ctx: Context, channel: int, note: int, velocity: int) -> str:
     """
     Send a MIDI note-on message.
@@ -654,6 +676,7 @@ def send_note_on(ctx: Context, channel: int, note: int, velocity: int) -> str:
         return f"Error sending note on: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def send_note_off(ctx: Context, channel: int, note: int) -> str:
     """
     Send a MIDI note-off message.
@@ -672,6 +695,7 @@ def send_note_off(ctx: Context, channel: int, note: int) -> str:
         return f"Error sending note off: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def get_midi_messages(ctx: Context) -> str:
     """Get any MIDI messages received from Ableton since the last call."""
     try:
@@ -685,10 +709,11 @@ def get_midi_messages(ctx: Context) -> str:
 
 
 @mcp.tool()
+@get_validated_tool
 def set_track_name(ctx: Context, track_index: int, name: str) -> str:
     """
     Set the name of a track.
-    
+
     Parameters:
     - track_index: The index of the track to rename
     - name: The new name for the track
@@ -702,10 +727,11 @@ def set_track_name(ctx: Context, track_index: int, name: str) -> str:
         return f"Error setting track name: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def create_clip(ctx: Context, track_index: int, clip_index: int, length: float = 4.0) -> str:
     """
     Create a new MIDI clip in the specified track and clip slot.
-    
+
     Parameters:
     - track_index: The index of the track to create the clip in
     - clip_index: The index of the clip slot to create the clip in
@@ -714,8 +740,8 @@ def create_clip(ctx: Context, track_index: int, clip_index: int, length: float =
     try:
         ableton = get_ableton_connection()
         result = ableton.send_command("create_clip", {
-            "track_index": track_index, 
-            "clip_index": clip_index, 
+            "track_index": track_index,
+            "clip_index": clip_index,
             "length": length
         })
         return f"Created new clip at track {track_index}, slot {clip_index} with length {length} beats"
@@ -724,15 +750,16 @@ def create_clip(ctx: Context, track_index: int, clip_index: int, length: float =
         return f"Error creating clip: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def add_notes_to_clip(
-    ctx: Context, 
-    track_index: int, 
-    clip_index: int, 
+    ctx: Context,
+    track_index: int,
+    clip_index: int,
     notes: List[Dict[str, Union[int, float, bool]]]
 ) -> str:
     """
     Add MIDI notes to a clip.
-    
+
     Parameters:
     - track_index: The index of the track containing the clip
     - clip_index: The index of the clip slot containing the clip
@@ -751,10 +778,11 @@ def add_notes_to_clip(
         return f"Error adding notes to clip: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def set_clip_name(ctx: Context, track_index: int, clip_index: int, name: str) -> str:
     """
     Set the name of a clip.
-    
+
     Parameters:
     - track_index: The index of the track containing the clip
     - clip_index: The index of the clip slot containing the clip
@@ -773,10 +801,11 @@ def set_clip_name(ctx: Context, track_index: int, clip_index: int, name: str) ->
         return f"Error setting clip name: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def set_tempo(ctx: Context, tempo: float) -> str:
     """
     Set the tempo of the Ableton session.
-    
+
     Parameters:
     - tempo: The new tempo in BPM
     """
@@ -790,10 +819,11 @@ def set_tempo(ctx: Context, tempo: float) -> str:
 
 
 @mcp.tool()
+@get_validated_tool
 def load_instrument_or_effect(ctx: Context, track_index: int, uri: str) -> str:
     """
     Load an instrument or effect onto a track using its URI.
-    
+
     Parameters:
     - track_index: The index of the track to load the instrument on
     - uri: The URI of the instrument or effect to load (e.g., 'query:Synths#Instrument%20Rack:Bass:FileId_5116')
@@ -804,7 +834,7 @@ def load_instrument_or_effect(ctx: Context, track_index: int, uri: str) -> str:
             "track_index": track_index,
             "item_uri": uri
         })
-        
+
         # Check if the instrument was loaded successfully
         if result.get("loaded", False):
             new_devices = result.get("new_devices", [])
@@ -820,10 +850,11 @@ def load_instrument_or_effect(ctx: Context, track_index: int, uri: str) -> str:
         return f"Error loading instrument by URI: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def fire_clip(ctx: Context, track_index: int, clip_index: int) -> str:
     """
     Start playing a clip.
-    
+
     Parameters:
     - track_index: The index of the track containing the clip
     - clip_index: The index of the clip slot containing the clip
@@ -840,10 +871,11 @@ def fire_clip(ctx: Context, track_index: int, clip_index: int) -> str:
         return f"Error firing clip: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def stop_clip(ctx: Context, track_index: int, clip_index: int) -> str:
     """
     Stop playing a clip.
-    
+
     Parameters:
     - track_index: The index of the track containing the clip
     - clip_index: The index of the clip slot containing the clip
@@ -860,6 +892,7 @@ def stop_clip(ctx: Context, track_index: int, clip_index: int) -> str:
         return f"Error stopping clip: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def start_playback(ctx: Context) -> str:
     """Start playing the Ableton session."""
     try:
@@ -871,6 +904,7 @@ def start_playback(ctx: Context) -> str:
         return f"Error starting playback: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def stop_playback(ctx: Context) -> str:
     """Stop playing the Ableton session."""
     try:
@@ -882,6 +916,7 @@ def stop_playback(ctx: Context) -> str:
         return f"Error stopping playback: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def undo(ctx: Context) -> str:
     """Undo the last action."""
     try:
@@ -896,6 +931,7 @@ def undo(ctx: Context) -> str:
         return f"Error undoing: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def redo(ctx: Context) -> str:
     """Redo the last undone action."""
     try:
@@ -910,6 +946,7 @@ def redo(ctx: Context) -> str:
         return f"Error redoing: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def randomize_device_parameters(ctx: Context, track_index: int, device_index: int) -> str:
     """
     Randomize the parameters of a device.
@@ -930,6 +967,7 @@ def randomize_device_parameters(ctx: Context, track_index: int, device_index: in
         return f"Error randomizing parameters: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def save_device_parameters_to_json(ctx: Context, track_index: int, device_index: int, filepath: str) -> str:
     """
     Saves the parameters of a device to a JSON file.
@@ -957,9 +995,10 @@ def save_device_parameters_to_json(ctx: Context, track_index: int, device_index:
         return f"Error saving device parameters: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def load_device_parameters_from_json(ctx: Context, track_index: int, device_index: int, filepath: str) -> str:
     """
-    Loads the parameters of a device from a JSON file.
+    Loads the. parameters of a device from a JSON file.
 
     Parameters:
     - track_index: The index of the track where the device is located
@@ -983,6 +1022,7 @@ def load_device_parameters_from_json(ctx: Context, track_index: int, device_inde
         return f"Error loading device parameters: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def setup_sidechain(ctx: Context, source_track_index: int, target_track_index: int) -> str:
     """
     Setup sidechain compression from a source track to a target track.
@@ -1003,6 +1043,7 @@ def setup_sidechain(ctx: Context, source_track_index: int, target_track_index: i
         return f"Error setting up sidechain: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def humanize_clip(ctx: Context, track_index: int, clip_index: int) -> str:
     """
     Add random variations to the timing and velocity of notes in a clip.
@@ -1023,6 +1064,7 @@ def humanize_clip(ctx: Context, track_index: int, clip_index: int) -> str:
         return f"Error humanizing clip: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def build_a_drum_beat(ctx: Context, genre: str) -> str:
     """
     Build a drum beat for a specific genre.
@@ -1086,6 +1128,7 @@ def build_a_drum_beat(ctx: Context, genre: str) -> str:
         return f"Error building drum beat: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def harmonize_melody(ctx: Context, track_index: int, clip_index: int) -> str:
     """
     Harmonize a melody with a simple chord progression.
@@ -1144,10 +1187,11 @@ def harmonize_melody(ctx: Context, track_index: int, clip_index: int) -> str:
         return f"Error harmonizing melody: {str(e)}"
 
 @mcp.tool()
+@get_validated_tool
 def get_browser_tree(ctx: Context, category_type: str = "all") -> str:
     """
     Get a hierarchical tree of browser categories from Ableton.
-    
+
     Parameters:
     - category_type: Type of categories to get ('all', 'instruments', 'sounds', 'drums', 'audio_effects', 'midi_effects')
     """
@@ -1156,17 +1200,17 @@ def get_browser_tree(ctx: Context, category_type: str = "all") -> str:
         result = ableton.send_command("get_browser_tree", {
             "category_type": category_type
         })
-        
+
         # Check if we got any categories
         if "available_categories" in result and len(result.get("categories", [])) == 0:
             available_cats = result.get("available_categories", [])
             return (f"No categories found for '{category_type}'. "
                    f"Available browser categories: {', '.join(available_cats)}")
-        
+
         # Format the tree in a more readable way
         total_folders = result.get("total_folders", 0)
         formatted_output = f"Browser tree for '{category_type}' (showing {total_folders} folders):\n\n"
-        
+
         def format_tree(item, indent=0):
             output = ""
             if item:
@@ -1174,7 +1218,7 @@ def get_browser_tree(ctx: Context, category_type: str = "all") -> str:
                 name = item.get("name", "Unknown")
                 path = item.get("path", "")
                 has_more = item.get("has_more", False)
-                
+
                 # Add this item
                 output += f"{prefix}• {name}"
                 if path:
@@ -1182,17 +1226,17 @@ def get_browser_tree(ctx: Context, category_type: str = "all") -> str:
                 if has_more:
                     output += " [...]"
                 output += "\n"
-                
+
                 # Add children
                 for child in item.get("children", []):
                     output += format_tree(child, indent + 1)
             return output
-        
+
         # Format each category
         for category in result.get("categories", []):
             formatted_output += format_tree(category)
             formatted_output += "\n"
-        
+
         return formatted_output
     except Exception as e:
         error_msg = str(e)
@@ -1207,10 +1251,11 @@ def get_browser_tree(ctx: Context, category_type: str = "all") -> str:
             return f"Error getting browser tree: {error_msg}"
 
 @mcp.tool()
+@get_validated_tool
 def get_browser_items_at_path(ctx: Context, path: str) -> str:
     """
     Get browser items at a specific path in Ableton's browser.
-    
+
     Parameters:
     - path: Path in the format "category/folder/subfolder"
             where category is one of the available browser categories in Ableton
@@ -1220,14 +1265,14 @@ def get_browser_items_at_path(ctx: Context, path: str) -> str:
         result = ableton.send_command("get_browser_items_at_path", {
             "path": path
         })
-        
+
         # Check if there was an error with available categories
         if "error" in result and "available_categories" in result:
             error = result.get("error", "")
             available_cats = result.get("available_categories", [])
             return (f"Error: {error}\n"
                    f"Available browser categories: {', '.join(available_cats)}")
-        
+
         return json.dumps(result, indent=2)
     except Exception as e:
         error_msg = str(e)
@@ -1248,10 +1293,11 @@ def get_browser_items_at_path(ctx: Context, path: str) -> str:
             return f"Error getting browser items at path: {error_msg}"
 
 @mcp.tool()
+@get_validated_tool
 def load_drum_kit(ctx: Context, track_index: int, rack_uri: str, kit_path: str) -> str:
     """
     Load a drum rack and then load a specific drum kit into it.
-    
+
     Parameters:
     - track_index: The index of the track to load on
     - rack_uri: The URI of the drum rack to load (e.g., 'Drums/Drum Rack')
@@ -1259,38 +1305,38 @@ def load_drum_kit(ctx: Context, track_index: int, rack_uri: str, kit_path: str) 
     """
     try:
         ableton = get_ableton_connection()
-        
+
         # Step 1: Load the drum rack
         result = ableton.send_command("load_browser_item", {
             "track_index": track_index,
             "item_uri": rack_uri
         })
-        
+
         if not result.get("loaded", False):
             return f"Failed to load drum rack with URI '{rack_uri}'"
-        
+
         # Step 2: Get the drum kit items at the specified path
         kit_result = ableton.send_command("get_browser_items_at_path", {
             "path": kit_path
         })
-        
+
         if "error" in kit_result:
             return f"Loaded drum rack but failed to find drum kit: {kit_result.get('error')}"
-        
+
         # Step 3: Find a loadable drum kit
         kit_items = kit_result.get("items", [])
         loadable_kits = [item for item in kit_items if item.get("is_loadable", False)]
-        
+
         if not loadable_kits:
             return f"Loaded drum rack but no loadable drum kits found at '{kit_path}'"
-        
+
         # Step 4: Load the first loadable kit
         kit_uri = loadable_kits[0].get("uri")
         load_result = ableton.send_command("load_browser_item", {
             "track_index": track_index,
             "item_uri": kit_uri
         })
-        
+
         return f"Loaded drum rack and kit '{loadable_kits[0].get('name')}' on track {track_index}"
     except Exception as e:
         logger.error(f"Error loading drum kit: {str(e)}")
@@ -1300,6 +1346,101 @@ def load_drum_kit(ctx: Context, track_index: int, rack_uri: str, kit_path: str) 
 def main():
     """Run the MCP server"""
     mcp.run(transport="sse", port=8000)
+
+@mcp.tool()
+@get_validated_tool
+def loop_clip(ctx: Context, track_index: int, clip_index: int, is_looping: bool) -> str:
+    """
+    Set whether a clip should loop or not.
+
+    Parameters:
+    - track_index: The index of the track containing the clip
+    - clip_index: The index of the clip slot containing the clip
+    - is_looping: Whether the clip should be set to loop or not
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("loop_clip", {
+            "track_index": track_index,
+            "clip_index": clip_index,
+            "is_looping": is_looping
+        })
+
+        loop_status = "enabled" if is_looping else "disabled"
+        return f"Looping {loop_status} for clip at track {track_index}, slot {clip_index}"
+    except Exception as e:
+        logger.error(f"Error setting clip looping: {str(e)}")
+        return f"Error setting clip looping: {str(e)}"
+
+@mcp.tool()
+@get_validated_tool
+def set_clip_length(ctx: Context, track_index: int, clip_index: int, length: float) -> str:
+    """
+    Set the length of a clip.
+
+    Parameters:
+    - track_index: The index of the track containing the clip
+    - clip_index: The index of the clip slot containing the clip
+    - length: The new length of the clip in beats
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("set_clip_length", {
+            "track_index": track_index,
+            "clip_index": clip_index,
+            "length": length
+        })
+        return f"Set length of clip at track {track_index}, slot {clip_index} to {length} beats"
+    except Exception as e:
+        logger.error(f"Error setting clip length: {str(e)}")
+        return f"Error setting clip length: {str(e)}"
+
+@mcp.tool()
+@get_validated_tool
+def generate_intelligent_midi(ctx: Context, track_index: int, clip_index: int, description: str) -> str:
+    """
+    Generates a MIDI clip based on a detailed description.
+
+    Parameters:
+    - track_index: The index of the track to create the clip on
+    - clip_index: The index of the clip slot to create the clip in
+    - description: A detailed description of the MIDI to generate
+                   (e.g., "a 4-bar funky bassline in C minor with a syncopated rhythm")
+    """
+    try:
+        # In a real implementation, this would call an LLM to generate the notes.
+        # For now, we'll use a simple parser.
+        notes = []
+        if "bassline" in description.lower():
+            # Generate a simple bassline
+            for i in range(16):
+                if i % 4 != 3: # Add some syncopation
+                    notes.append({"pitch": 36, "start_time": i * 0.25, "duration": 0.2, "velocity": 100, "mute": False})
+        elif "chords" in description.lower():
+            # Generate a simple chord progression
+            chords = [[60, 64, 67], [65, 69, 72], [67, 71, 76], [60, 64, 67]]
+            for i, chord in enumerate(chords):
+                for note in chord:
+                    notes.append({"pitch": note, "start_time": i, "duration": 0.9, "velocity": 90, "mute": False})
+        else:
+            return "I'm sorry, I can only generate simple basslines and chords right now."
+
+        ableton = get_ableton_connection()
+
+        # Create a new clip
+        ableton.send_command("create_clip", {"track_index": track_index, "clip_index": clip_index, "length": 4.0})
+
+        # Add the notes to the clip
+        result = ableton.send_command("add_notes_to_clip", {
+            "track_index": track_index,
+            "clip_index": clip_index,
+            "notes": notes
+        })
+
+        return f"Generated intelligent MIDI clip with {len(notes)} notes on track {track_index}, slot {clip_index}"
+    except Exception as e:
+        logger.error(f"Error generating intelligent MIDI: {str(e)}")
+        return f"Error generating intelligent MIDI: {str(e)}"
 
 if __name__ == "__main__":
     main()
