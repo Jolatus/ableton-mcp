@@ -330,6 +330,33 @@ class AbletonMCP(ControlSurface):
                 track_index = params.get("track_index", 0)
                 device_index = params.get("device_index", 0)
                 response["result"] = self._get_device_details(track_index, device_index)
+            elif command_type == "set_device_parameter":
+                track_index = params.get("track_index", 0)
+                device_index = params.get("device_index", 0)
+                parameter_name = params.get("parameter_name", "")
+                value = params.get("value", 0)
+                response["result"] = self._set_device_parameter(track_index, device_index, parameter_name, value)
+            elif command_type == "get_scene_info":
+                response["result"] = self._get_scene_info()
+            elif command_type == "fire_scene":
+                scene_index = params.get("scene_index", 0)
+                response["result"] = self._fire_scene(scene_index)
+            elif command_type == "create_scene":
+                scene_index = params.get("scene_index", -1)
+                response["result"] = self._create_scene(scene_index)
+            elif command_type == "rename_scene":
+                scene_index = params.get("scene_index", 0)
+                name = params.get("name", "")
+                response["result"] = self._rename_scene(scene_index, name)
+            elif command_type == "delete_clip":
+                track_index = params.get("track_index", 0)
+                clip_index = params.get("clip_index", 0)
+                response["result"] = self._delete_clip(track_index, clip_index)
+            elif command_type == "set_clip_color":
+                track_index = params.get("track_index", 0)
+                clip_index = params.get("clip_index", 0)
+                color = params.get("color", 0)
+                response["result"] = self._set_clip_color(track_index, clip_index, color)
             else:
                 response["status"] = "error"
                 response["message"] = "Unknown command: " + command_type
@@ -467,6 +494,104 @@ class AbletonMCP(ControlSurface):
         }
 
         return device_info
+
+    def _set_device_parameter(self, track_index, device_index, parameter_name, value):
+        """Set a parameter on a device"""
+        if track_index < 0 or track_index >= len(self._song.tracks):
+            raise IndexError("Track index out of range")
+
+        track = self._song.tracks[track_index]
+
+        if device_index < 0 or device_index >= len(track.devices):
+            raise IndexError("Device index out of range")
+
+        device = track.devices[device_index]
+
+        parameter_found = False
+        for param in device.parameters:
+            if param.name == parameter_name:
+                param.value = value
+                parameter_found = True
+                break
+
+        if not parameter_found:
+            raise ValueError("Parameter '{}' not found on device '{}'".format(parameter_name, device.name))
+
+        return {
+            "track_index": track_index,
+            "device_index": device_index,
+            "parameter_name": parameter_name,
+            "value": value
+        }
+
+    def _get_scene_info(self):
+        """Get information about all scenes"""
+        scenes = []
+        for i, scene in enumerate(self._song.scenes):
+            scenes.append({
+                "index": i,
+                "name": scene.name
+            })
+        return scenes
+
+    def _fire_scene(self, scene_index):
+        """Fire a scene"""
+        if scene_index < 0 or scene_index >= len(self._song.scenes):
+            raise IndexError("Scene index out of range")
+
+        self._song.scenes[scene_index].fire()
+        return {"fired": True, "scene_index": scene_index}
+
+    def _create_scene(self, scene_index):
+        """Create a new scene"""
+        self._song.create_scene(scene_index)
+        return {"created": True, "scene_index": scene_index}
+
+    def _rename_scene(self, scene_index, name):
+        """Rename a scene"""
+        if scene_index < 0 or scene_index >= len(self._song.scenes):
+            raise IndexError("Scene index out of range")
+
+        self._song.scenes[scene_index].name = name
+        return {"renamed": True, "scene_index": scene_index, "name": name}
+
+    def _delete_clip(self, track_index, clip_index):
+        """Delete a clip"""
+        if track_index < 0 or track_index >= len(self._song.tracks):
+            raise IndexError("Track index out of range")
+
+        track = self._song.tracks[track_index]
+
+        if clip_index < 0 or clip_index >= len(track.clip_slots):
+            raise IndexError("Clip index out of range")
+
+        clip_slot = track.clip_slots[clip_index]
+
+        if not clip_slot.has_clip:
+            raise Exception("No clip in slot")
+
+        clip_slot.delete_clip()
+
+        return {"deleted": True, "track_index": track_index, "clip_index": clip_index}
+
+    def _set_clip_color(self, track_index, clip_index, color):
+        """Set the color of a clip"""
+        if track_index < 0 or track_index >= len(self._song.tracks):
+            raise IndexError("Track index out of range")
+
+        track = self._song.tracks[track_index]
+
+        if clip_index < 0 or clip_index >= len(track.clip_slots):
+            raise IndexError("Clip index out of range")
+
+        clip_slot = track.clip_slots[clip_index]
+
+        if not clip_slot.has_clip:
+            raise Exception("No clip in slot")
+
+        clip_slot.clip.color = color
+
+        return {"color_set": True, "track_index": track_index, "clip_index": clip_index, "color": color}
     
     def _create_midi_track(self, index):
         """Create a new MIDI track at the specified index"""
