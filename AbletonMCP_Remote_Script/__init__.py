@@ -357,6 +357,19 @@ class AbletonMCP(ControlSurface):
                 clip_index = params.get("clip_index", 0)
                 color = params.get("color", 0)
                 response["result"] = self._set_clip_color(track_index, clip_index, color)
+            elif command_type == "set_volume":
+                track_index = params.get("track_index", 0)
+                volume = params.get("volume", 0)
+                response["result"] = self._set_volume(track_index, volume)
+            elif command_type == "set_panning":
+                track_index = params.get("track_index", 0)
+                panning = params.get("panning", 0)
+                response["result"] = self._set_panning(track_index, panning)
+            elif command_type == "set_send":
+                track_index = params.get("track_index", 0)
+                send_index = params.get("send_index", 0)
+                value = params.get("value", 0)
+                response["result"] = self._set_send(track_index, send_index, value)
             else:
                 response["status"] = "error"
                 response["message"] = "Unknown command: " + command_type
@@ -592,6 +605,37 @@ class AbletonMCP(ControlSurface):
         clip_slot.clip.color = color
 
         return {"color_set": True, "track_index": track_index, "clip_index": clip_index, "color": color}
+
+    def _set_volume(self, track_index, volume):
+        """Set the volume of a track"""
+        if track_index < 0 or track_index >= len(self._song.tracks):
+            raise IndexError("Track index out of range")
+
+        track = self._song.tracks[track_index]
+        track.mixer_device.volume.value = volume
+        return {"track_index": track_index, "volume": volume}
+
+    def _set_panning(self, track_index, panning):
+        """Set the panning of a track"""
+        if track_index < 0 or track_index >= len(self._song.tracks):
+            raise IndexError("Track index out of range")
+
+        track = self._song.tracks[track_index]
+        track.mixer_device.panning.value = panning
+        return {"track_index": track_index, "panning": panning}
+
+    def _set_send(self, track_index, send_index, value):
+        """Set the send level of a track"""
+        if track_index < 0 or track_index >= len(self._song.tracks):
+            raise IndexError("Track index out of range")
+
+        track = self._song.tracks[track_index]
+
+        if send_index < 0 or send_index >= len(track.mixer_device.sends):
+            raise IndexError("Send index out of range")
+
+        track.mixer_device.sends[send_index].value = value
+        return {"track_index": track_index, "send_index": send_index, "value": value}
     
     def _create_midi_track(self, index):
         """Create a new MIDI track at the specified index"""

@@ -22,6 +22,9 @@ from MCP_Server.server import (
     rename_scene,
     delete_clip,
     set_clip_color,
+    set_volume,
+    set_panning,
+    set_send,
     create_midi_track,
     set_track_name,
     create_clip,
@@ -214,6 +217,48 @@ class TestAbletonMCPServer(unittest.TestCase):
         # Assert
         mock_conn.send_command.assert_called_once_with("set_clip_color", {"track_index": 0, "clip_index": 0, "color": 16711680})
         self.assertEqual(result_str, "Set color of clip at track 0, slot 0 to 16711680")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_set_volume(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+        mock_conn.send_command.return_value = {"track_index": 0, "volume": 0.5}
+
+        # Act
+        result_str = set_volume(self.ctx, track_index=0, volume=0.5)
+
+        # Assert
+        mock_conn.send_command.assert_called_once_with("set_volume", {"track_index": 0, "volume": 0.5})
+        self.assertEqual(result_str, "Set volume of track 0 to 0.5")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_set_panning(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+        mock_conn.send_command.return_value = {"track_index": 0, "panning": -0.5}
+
+        # Act
+        result_str = set_panning(self.ctx, track_index=0, panning=-0.5)
+
+        # Assert
+        mock_conn.send_command.assert_called_once_with("set_panning", {"track_index": 0, "panning": -0.5})
+        self.assertEqual(result_str, "Set panning of track 0 to -0.5")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_set_send(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+        mock_conn.send_command.return_value = {"track_index": 0, "send_index": 0, "value": 0.8}
+
+        # Act
+        result_str = set_send(self.ctx, track_index=0, send_index=0, value=0.8)
+
+        # Assert
+        mock_conn.send_command.assert_called_once_with("set_send", {"track_index": 0, "send_index": 0, "value": 0.8})
+        self.assertEqual(result_str, "Set send 0 of track 0 to 0.8")
 
 if __name__ == '__main__':
     # Need to make sure the MCP_Server directory is in the path

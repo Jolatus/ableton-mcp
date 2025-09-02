@@ -424,6 +424,58 @@ def set_clip_color(ctx: Context, track_index: int, clip_index: int, color: int) 
         return f"Error setting clip color: {str(e)}"
 
 @mcp.tool()
+def set_volume(ctx: Context, track_index: int, volume: float) -> str:
+    """
+    Set the volume of a track.
+
+    Parameters:
+    - track_index: The index of the track to set the volume for
+    - volume: The new volume for the track (0.0 to 1.0)
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("set_volume", {"track_index": track_index, "volume": volume})
+        return f"Set volume of track {track_index} to {volume}"
+    except Exception as e:
+        logger.error(f"Error setting volume: {str(e)}")
+        return f"Error setting volume: {str(e)}"
+
+@mcp.tool()
+def set_panning(ctx: Context, track_index: int, panning: float) -> str:
+    """
+    Set the panning of a track.
+
+    Parameters:
+    - track_index: The index of the track to set the panning for
+    - panning: The new panning for the track (-1.0 to 1.0)
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("set_panning", {"track_index": track_index, "panning": panning})
+        return f"Set panning of track {track_index} to {panning}"
+    except Exception as e:
+        logger.error(f"Error setting panning: {str(e)}")
+        return f"Error setting panning: {str(e)}"
+
+@mcp.tool()
+def set_send(ctx: Context, track_index: int, send_index: int, value: float) -> str:
+    """
+    Set the send level of a track.
+
+    Parameters:
+    - track_index: The index of the track to set the send level for
+    - send_index: The index of the send to set
+    - value: The new send level (0.0 to 1.0)
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("set_send", {"track_index": track_index, "send_index": send_index, "value": value})
+        return f"Set send {send_index} of track {track_index} to {value}"
+    except Exception as e:
+        logger.error(f"Error setting send: {str(e)}")
+        return f"Error setting send: {str(e)}"
+
+@mcp.tool()
 def create_midi_track(ctx: Context, index: int = -1) -> str:
     """
     Create a new MIDI track in the Ableton session.
