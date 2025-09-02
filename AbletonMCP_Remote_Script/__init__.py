@@ -8,6 +8,7 @@ import json
 import threading
 import time
 import traceback
+import random
 
 # Change queue import for Python 2
 try:
@@ -336,6 +337,19 @@ class AbletonMCP(ControlSurface):
             elif command_type == "get_browser_items_at_path":
                 path = params.get("path", "")
                 response["result"] = self.get_browser_items_at_path(path)
+            elif command_type == "undo":
+                response["result"] = self._undo()
+            elif command_type == "redo":
+                response["result"] = self._redo()
+            elif command_type == "randomize_device_parameters":
+                track_index = params.get("track_index", 0)
+                device_index = params.get("device_index", 0)
+                response["result"] = self._randomize_device_parameters(track_index, device_index)
+            elif command_type == "set_device_parameters":
+                track_index = params.get("track_index", 0)
+                device_index = params.get("device_index", 0)
+                parameters = params.get("parameters", [])
+                response["result"] = self._set_device_parameters(track_index, device_index, parameters)
             else:
                 response["status"] = "error"
                 response["message"] = "Unknown command: " + command_type
@@ -645,6 +659,80 @@ class AbletonMCP(ControlSurface):
             return result
         except Exception as e:
             self.log_message("Error stopping playback: " + str(e))
+            raise
+
+    def _undo(self):
+        """Undo the last action"""
+        try:
+            if self._song.can_undo:
+                self._song.undo()
+                return {"undone": True}
+            else:
+                return {"undone": False, "message": "Nothing to undo"}
+        except Exception as e:
+            self.log_message("Error undoing: " + str(e))
+            raise
+
+    def _redo(self):
+        """Redo the last undone action"""
+        try:
+            if self._song.can_redo:
+                self._song.redo()
+                return {"redone": True}
+            else:
+                return {"redone": False, "message": "Nothing to redo"}
+        except Exception as e:
+            self.log_message("Error redoing: " + str(e))
+            raise
+
+    def _randomize_device_parameters(self, track_index, device_index):
+        """Randomize the parameters of a device"""
+        try:
+            if track_index < 0 or track_index >= len(self._song.tracks):
+                raise IndexError("Track index out of range")
+
+            track = self._song.tracks[track_index]
+
+            if device_index < 0 or device_index >= len(track.devices):
+                raise IndexError("Device index out of range")
+
+            device = track.devices[device_index]
+
+            for param in device.parameters:
+                if param.is_enabled and not param.is_quantized:
+                    param.value = random.uniform(param.min, param.max)
+
+            return {"randomized": True, "track_index": track_index, "device_index": device_index}
+        except Exception as e:
+            self.log_message("Error randomizing parameters: " + str(e))
+            raise
+
+    def _set_device_parameters(self, track_index, device_index, parameters):
+        """Set the parameters of a device from a list of parameter dicts"""
+        try:
+            if track_index < 0 or track_index >= len(self._song.tracks):
+                raise IndexError("Track index out of range")
+
+            track = self._song.tracks[track_index]
+
+            if device_index < 0 or device_index >= len(track.devices):
+                raise IndexError("Device index out of range")
+
+            device = track.devices[device_index]
+
+            for param_info in parameters:
+                param_name = param_info.get("name")
+                param_value = param_info.get("value")
+
+                if param_name is not None and param_value is not None:
+                    for param in device.parameters:
+                        if param.name == param_name:
+                            param.value = param_value
+                            break
+
+            return {"set": True, "track_index": track_index, "device_index": device_index}
+        except Exception as e:
+            self.log_message("Error setting parameters: " + str(e))
             raise
     
     def _get_browser_item(self, uri, path):

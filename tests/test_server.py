@@ -33,6 +33,7 @@ from MCP_Server.server import (
     generate_midi,
     send_note_on,
     send_note_off,
+    get_midi_messages,
     create_midi_track,
     set_track_name,
     create_clip,
@@ -40,10 +41,14 @@ from MCP_Server.server import (
     set_clip_name,
     set_tempo,
     load_instrument_or_effect,
-    fire_clip,
     stop_clip,
     start_playback,
     stop_playback,
+    undo,
+    redo,
+    randomize_device_parameters,
+    save_device_parameters_to_json,
+    load_device_parameters_from_json,
     get_browser_tree,
     get_browser_items_at_path,
     load_drum_kit,
@@ -395,6 +400,113 @@ class TestAbletonMCPServer(unittest.TestCase):
         # Assert
         mock_midi_client.send_note_off.assert_called_once_with(0, 60)
         self.assertEqual(result_str, "Sent note off: channel=0, note=60")
+
+    @patch('MCP_Server.server.SocketMidiServer')
+    def test_get_midi_messages(self, MockSocketMidiServer):
+        # Arrange
+        mock_socket_midi_server = MockSocketMidiServer.return_value
+        import MCP_Server.server
+        MCP_Server.server._socket_midi_server = mock_socket_midi_server
+
+        expected_messages = [{"type": "midi", "message": [144, 60, 100], "deltatime": 0.0}]
+        mock_socket_midi_server.get_messages.return_value = expected_messages
+
+        # Act
+        result_str = get_midi_messages(self.ctx)
+        result = json.loads(result_str)
+
+        # Assert
+        mock_socket_midi_server.get_messages.assert_called_once()
+        self.assertEqual(result, expected_messages)
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_undo(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+        mock_conn.send_command.return_value = {"undone": True}
+
+        # Act
+        result_str = undo(self.ctx)
+
+        # Assert
+        mock_conn.send_command.assert_called_once_with("undo")
+        self.assertEqual(result_str, "Undone last action.")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_redo(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+        mock_conn.send_command.return_value = {"redone": True}
+
+        # Act
+        result_str = redo(self.ctx)
+
+        # Assert
+        mock_conn.send_command.assert_called_once_with("redo")
+        self.assertEqual(result_str, "Redone last action.")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    def test_randomize_device_parameters(self, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+        mock_conn.send_command.return_value = {"randomized": True}
+
+        # Act
+        result_str = randomize_device_parameters(self.ctx, track_index=0, device_index=0)
+
+        # Assert
+        mock_conn.send_command.assert_called_once_with("randomize_device_parameters", {"track_index": 0, "device_index": 0})
+        self.assertEqual(result_str, "Randomized parameters for device 0 on track 0")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('builtins.open', new_callable=unittest.mock.mock_open)
+    @patch('json.dump')
+    def test_save_device_parameters_to_json(self, mock_json_dump, mock_open, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+
+        expected_parameters = [{"name": "Volume", "value": 0.8}]
+        mock_conn.send_command.return_value = {"parameters": expected_parameters}
+
+        filepath = "test.json"
+
+        # Act
+        result_str = save_device_parameters_to_json(self.ctx, track_index=0, device_index=0, filepath=filepath)
+
+        # Assert
+        mock_conn.send_command.assert_called_once_with("get_device_details", {"track_index": 0, "device_index": 0})
+        mock_open.assert_called_once_with(filepath, "w")
+        mock_json_dump.assert_called_once_with(expected_parameters, mock_open(), indent=2)
+        self.assertEqual(result_str, f"Saved {len(expected_parameters)} parameters to {filepath}")
+
+    @patch('MCP_Server.server.get_ableton_connection')
+    @patch('builtins.open', new_callable=unittest.mock.mock_open, read_data='[{"name": "Volume", "value": 0.5}]')
+    @patch('json.load')
+    def test_load_device_parameters_from_json(self, mock_json_load, mock_open, mock_get_ableton_connection):
+        # Arrange
+        mock_conn = MagicMock()
+        mock_get_ableton_connection.return_value = mock_conn
+
+        mock_json_load.return_value = [{"name": "Volume", "value": 0.5}]
+
+        filepath = "test.json"
+
+        # Act
+        result_str = load_device_parameters_from_json(self.ctx, track_index=0, device_index=0, filepath=filepath)
+
+        # Assert
+        mock_open.assert_called_once_with(filepath, "r")
+        mock_json_load.assert_called_once_with(mock_open())
+        mock_conn.send_command.assert_called_once_with("set_device_parameters", {
+            "track_index": 0,
+            "device_index": 0,
+            "parameters": [{"name": "Volume", "value": 0.5}]
+        })
+        self.assertEqual(result_str, f"Loaded 1 parameters from {filepath}")
 
 if __name__ == '__main__':
     # Need to make sure the MCP_Server directory is in the path

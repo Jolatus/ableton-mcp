@@ -1,6 +1,7 @@
 # ableton_mcp_server.py
 from mcp.server.fastmcp import FastMCP, Context
 from .midi_client import MidiClient
+from .socket_midi_server import SocketMidiServer
 import socket
 import json
 import logging
@@ -165,7 +166,7 @@ class AbletonConnection:
 @asynccontextmanager
 async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
     """Manage server startup and shutdown lifecycle"""
-    global _midi_client
+    global _midi_client, _socket_midi_server
     try:
         logger.info("AbletonMCP server starting up")
         
@@ -177,6 +178,8 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
             logger.warning("Make sure the Ableton Remote Script is running")
 
         _midi_client = MidiClient()
+        _socket_midi_server = SocketMidiServer()
+        _socket_midi_server.start()
         
         yield {}
     finally:
@@ -191,6 +194,12 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
             _midi_client.disconnect()
             _midi_client = None
 
+        if _socket_midi_server:
+            logger.info("Stopping Socket MIDI server on shutdown")
+            _socket_midi_server.stop()
+            _socket_midi_server.join()
+            _socket_midi_server = None
+
         logger.info("AbletonMCP server shut down")
 
 # Create the MCP server with lifespan support
@@ -202,6 +211,7 @@ mcp = FastMCP(
 # Global connection for resources
 _ableton_connection = None
 _midi_client = None
+_socket_midi_server = None
 
 def get_ableton_connection():
     """Get or create a persistent Ableton connection"""
@@ -659,6 +669,18 @@ def send_note_off(ctx: Context, channel: int, note: int) -> str:
         logger.error(f"Error sending note off: {str(e)}")
         return f"Error sending note off: {str(e)}"
 
+@mcp.tool()
+def get_midi_messages(ctx: Context) -> str:
+    """Get any MIDI messages received from Ableton since the last call."""
+    try:
+        if not _socket_midi_server:
+            raise Exception("Socket MIDI server not initialized")
+        messages = _socket_midi_server.get_messages()
+        return json.dumps(messages, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting MIDI messages: {str(e)}")
+        return f"Error getting MIDI messages: {str(e)}"
+
 
 @mcp.tool()
 def set_track_name(ctx: Context, track_index: int, name: str) -> str:
@@ -856,6 +878,107 @@ def stop_playback(ctx: Context) -> str:
     except Exception as e:
         logger.error(f"Error stopping playback: {str(e)}")
         return f"Error stopping playback: {str(e)}"
+
+@mcp.tool()
+def undo(ctx: Context) -> str:
+    """Undo the last action."""
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("undo")
+        if result.get("undone"):
+            return "Undone last action."
+        else:
+            return f"Could not undo: {result.get('message', 'Unknown reason')}"
+    except Exception as e:
+        logger.error(f"Error undoing: {str(e)}")
+        return f"Error undoing: {str(e)}"
+
+@mcp.tool()
+def redo(ctx: Context) -> str:
+    """Redo the last undone action."""
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("redo")
+        if result.get("redone"):
+            return "Redone last action."
+        else:
+            return f"Could not redo: {result.get('message', 'Unknown reason')}"
+    except Exception as e:
+        logger.error(f"Error redoing: {str(e)}")
+        return f"Error redoing: {str(e)}"
+
+@mcp.tool()
+def randomize_device_parameters(ctx: Context, track_index: int, device_index: int) -> str:
+    """
+    Randomize the parameters of a device.
+
+    Parameters:
+    - track_index: The index of the track where the device is located
+    - device_index: The index of the device on the track
+    """
+    try:
+        ableton = get_ableton_connection()
+        result = ableton.send_command("randomize_device_parameters", {
+            "track_index": track_index,
+            "device_index": device_index
+        })
+        return f"Randomized parameters for device {device_index} on track {track_index}"
+    except Exception as e:
+        logger.error(f"Error randomizing parameters: {str(e)}")
+        return f"Error randomizing parameters: {str(e)}"
+
+@mcp.tool()
+def save_device_parameters_to_json(ctx: Context, track_index: int, device_index: int, filepath: str) -> str:
+    """
+    Saves the parameters of a device to a JSON file.
+
+    Parameters:
+    - track_index: The index of the track where the device is located
+    - device_index: The index of the device on the track
+    - filepath: The path to the JSON file to save the parameters to
+    """
+    try:
+        ableton = get_ableton_connection()
+        device_details = ableton.send_command("get_device_details", {
+            "track_index": track_index,
+            "device_index": device_index
+        })
+
+        parameters = device_details.get("parameters", [])
+
+        with open(filepath, "w") as f:
+            json.dump(parameters, f, indent=2)
+
+        return f"Saved {len(parameters)} parameters to {filepath}"
+    except Exception as e:
+        logger.error(f"Error saving device parameters: {str(e)}")
+        return f"Error saving device parameters: {str(e)}"
+
+@mcp.tool()
+def load_device_parameters_from_json(ctx: Context, track_index: int, device_index: int, filepath: str) -> str:
+    """
+    Loads the parameters of a device from a JSON file.
+
+    Parameters:
+    - track_index: The index of the track where the device is located
+    - device_index: The index of the device on the track
+    - filepath: The path to the JSON file to load the parameters from
+    """
+    try:
+        with open(filepath, "r") as f:
+            parameters = json.load(f)
+
+        ableton = get_ableton_connection()
+        result = ableton.send_command("set_device_parameters", {
+            "track_index": track_index,
+            "device_index": device_index,
+            "parameters": parameters
+        })
+
+        return f"Loaded {len(parameters)} parameters from {filepath}"
+    except Exception as e:
+        logger.error(f"Error loading device parameters: {str(e)}")
+        return f"Error loading device parameters: {str(e)}"
 
 @mcp.tool()
 def get_browser_tree(ctx: Context, category_type: str = "all") -> str:
