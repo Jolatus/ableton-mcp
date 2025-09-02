@@ -16,6 +16,7 @@ classifiers = [
 dependencies = [
     "mcp[cli]>=1.3.0",
     "python-rtmidi",
+    "fastapi",
 ]
 
 [project.scripts]

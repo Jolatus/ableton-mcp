@@ -121,15 +121,61 @@ uvx ableton-mcp
 
 Once the config file has been set on Claude, and the remote script is running in Ableton, you will see a hammer icon with tools for the Ableton MCP.
 
-## Capabilities
+## Available Tools
 
-- Get session and track information
-- Create and modify MIDI and audio tracks
-- Create, edit, and trigger clips
-- Control playback
-- Load instruments and effects from Ableton's browser
-- Add notes to MIDI clips
-- Change tempo and other session parameters
+Here is a comprehensive list of all the tools available through the AbletonMCP integration:
+
+### Session & Transport
+- `get_session_info()`: Get detailed information about the current Ableton session.
+- `set_tempo(tempo: float)`: Set the tempo of the Ableton session.
+- `start_playback()`: Start playing the Ableton session.
+- `stop_playback()`: Stop playing the Ableton session.
+- `undo()`: Undo the last action.
+- `redo()`: Redo the last undone action.
+
+### Track Management
+- `get_track_info(track_index: int)`: Get detailed information about a specific track.
+- `create_midi_track(index: int = -1)`: Create a new MIDI track.
+- `create_audio_track(index: int = -1)`: Create a new audio track.
+- `create_return_track()`: Create a new return track.
+- `delete_track(track_index: int)`: Delete a track.
+- `set_track_name(track_index: int, name: str)`: Set the name of a track.
+- `group_tracks(track_indices: list)`: Group tracks together.
+
+### Device & Preset Management
+- `get_device_details(track_index: int, device_index: int)`: Get detailed information about a specific device on a track.
+- `set_device_parameter(track_index: int, device_index: int, parameter_name: str, value: float)`: Set a parameter on a device.
+- `randomize_device_parameters(track_index: int, device_index: int)`: Randomize the parameters of a device.
+- `save_device_parameters_to_json(track_index: int, device_index: int, filepath: str)`: Saves the parameters of a device to a JSON file.
+- `load_device_parameters_from_json(track_index: int, device_index: int, filepath: str)`: Loads the parameters of a device from a JSON file.
+
+### Clip Manipulation
+- `create_clip(track_index: int, clip_index: int, length: float = 4.0)`: Create a new MIDI clip.
+- `add_notes_to_clip(track_index: int, clip_index: int, notes: list)`: Add MIDI notes to a clip.
+- `set_clip_name(track_index: int, clip_index: int, name: str)`: Set the name of a clip.
+- `delete_clip(track_index: int, clip_index: int)`: Delete a clip.
+- `set_clip_color(track_index: int, clip_index: int, color: int)`: Set the color of a clip.
+- `fire_clip(track_index: int, clip_index: int)`: Fire a clip.
+- `stop_clip(track_index: int, clip_index: int)`: Stop a clip.
+- `generate_midi(track_index: int, clip_index: int, description: str)`: Generates a MIDI clip based on a description.
+
+### Scene Control
+- `get_scene_info()`: Get information about all scenes.
+- `fire_scene(scene_index: int)`: Fire a scene.
+- `create_scene(scene_index: int = -1)`: Create a new scene.
+- `rename_scene(scene_index: int, name: str)`: Rename a scene.
+
+### Browser & Loading
+- `get_browser_tree(category_type: str = "all")`: Get a hierarchical tree of browser categories.
+- `get_browser_items_at_path(path: str)`: Get browser items at a specific path.
+- `search_browser(query: str)`: Search the browser for items matching the query.
+- `load_instrument_or_effect(track_index: int, uri: str)`: Load an instrument or effect onto a track.
+- `load_drum_kit(track_index: int, rack_uri: str, kit_path: str)`: Load a drum rack and then load a specific drum kit into it.
+
+### Real-time MIDI
+- `send_note_on(channel: int, note: int, velocity: int)`: Send a MIDI note-on message.
+- `send_note_off(channel: int, note: int)`: Send a MIDI note-off message.
+- `get_midi_messages()`: Get any MIDI messages received from Ableton since the last call.
 
 ## Example Commands
 
