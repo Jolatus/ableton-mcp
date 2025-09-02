@@ -121,6 +121,67 @@ uvx ableton-mcp
 
 Once the config file has been set on Claude, and the remote script is running in Ableton, you will see a hammer icon with tools for the Ableton MCP.
 
+## Running the Server in HTTP Mode
+
+By default, the MCP server communicates with the client over standard I/O. However, you can also run the server in HTTP mode to allow for remote connections (e.g., from a web-based client or a service like Gemini Pro).
+
+To run the server in HTTP mode, you will need to modify the `main` function in `MCP_Server/server.py` to look like this:
+
+```python
+def main():
+    """Run the MCP server"""
+    mcp.run(transport="sse", port=8000)
+```
+
+This will start an HTTP server on port 8000 using the Server-Sent Events (SSE) transport.
+
+### Security Considerations
+
+When running the server in HTTP mode, it is crucial to consider the security implications of exposing your Ableton Live instance to the network. This integration includes two main security features:
+
+1.  **API Key Authentication:** The server requires an API key to be sent in the `Authorization` header of every request. The server will reject any request without a valid API key.
+
+2.  **HTTPS (SSL/TLS):** To encrypt the communication between the client and the server, you should run the server with HTTPS.
+
+### Setting up the API Key
+
+The server loads the API key from the `ABLETON_MCP_API_KEY` environment variable. If this variable is not set, it will fall back to a default, insecure key.
+
+To set the environment variable:
+
+**macOS/Linux:**
+```bash
+export ABLETON_MCP_API_KEY="your-super-secret-api-key"
+```
+
+**Windows:**
+```powershell
+$env:ABLETON_MCP_API_KEY="your-super-secret-api-key"
+```
+
+### Setting up HTTPS
+
+To run the server with HTTPS, you will need an SSL certificate. For local development, you can generate a self-signed certificate using `openssl`:
+
+```bash
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+```
+
+This will create two files: `key.pem` and `cert.pem`. You can then run the server with these files:
+
+```python
+def main():
+    """Run the MCP server"""
+    mcp.run(
+        transport="sse",
+        port=8000,
+        ssl_keyfile="key.pem",
+        ssl_certfile="cert.pem"
+    )
+```
+
+**Note:** When using a self-signed certificate, your client will need to be configured to trust it. For production use, you should use a certificate from a trusted Certificate Authority (CA).
+
 ## Available Tools
 
 Here is a comprehensive list of all the tools available through the AbletonMCP integration:

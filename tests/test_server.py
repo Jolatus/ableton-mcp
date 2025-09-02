@@ -2,16 +2,17 @@ import unittest
 from unittest.mock import MagicMock, patch
 import json
 import sys
-
-# Mock the mcp library before importing the server
+import asyncio
 from mcp.server.fastmcp import FastMCP
 
 # A mock context object
 class MockContext:
-    pass
+    def get(self, key):
+        return None
 
 # Import the functions to be tested
 from MCP_Server.server import (
+    mcp,
     get_session_info,
     get_track_info,
     get_device_details,

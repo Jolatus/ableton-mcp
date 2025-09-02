@@ -5,11 +5,11 @@ from .socket_midi_server import SocketMidiServer
 import socket
 import json
 import logging
+import os
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Dict, Any, List, Union
 from functools import wraps
-from fastapi import Request, HTTPException
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, 
@@ -210,28 +210,10 @@ mcp = FastMCP(
     lifespan=server_lifespan
 )
 
-def api_key_required(func):
-    @wraps(func)
-    async def wrapper(ctx: Context, *args, **kwargs):
-        request: Request = ctx.get("fastapi_request")
-        if not request:
-            # This should not happen if the server is run with the http transport
-            return await func(ctx, *args, **kwargs)
-
-        api_key = request.headers.get("Authorization")
-        if not api_key or api_key != f"Bearer {API_KEY}":
-            raise HTTPException(status_code=401, detail="Invalid API Key")
-
-        return await func(ctx, *args, **kwargs)
-    return wrapper
-
 # Global connection for resources
 _ableton_connection = None
 _midi_client = None
 _socket_midi_server = None
-
-# TODO: Load this from an environment variable in a production environment
-API_KEY = "my-secret-api-key"
 
 def get_ableton_connection():
     """Get or create a persistent Ableton connection"""
@@ -299,7 +281,6 @@ def get_ableton_connection():
 # Core Tool endpoints
 
 @mcp.tool()
-@api_key_required
 def get_session_info(ctx: Context) -> str:
     """Get detailed information about the current Ableton session"""
     try:
