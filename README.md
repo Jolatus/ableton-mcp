@@ -1,210 +1,180 @@
 # AbletonMCP - Ableton Live Model Context Protocol Integration
 [![smithery badge](https://smithery.ai/badge/@ahujasid/ableton-mcp)](https://smithery.ai/server/@ahujasid/ableton-mcp)
 
-AbletonMCP connects Ableton Live to Claude AI through the Model Context Protocol (MCP), allowing Claude to directly interact with and control Ableton Live. This integration enables prompt-assisted music production, track creation, and Live session manipulation.
+AbletonMCP connects Large Language Models like Claude to Ableton Live, allowing the AI to directly interact with and control your DAW. This integration enables prompt-assisted music production, track creation, and Live session manipulation.
 
 ### Join the Community
 
 Give feedback, get inspired, and build on top of the MCP: [Discord](https://discord.gg/3ZrMyGKnaU). Made by [Siddharth](https://x.com/sidahuj)
 
-## Features
+## Architecture Overview
 
-- **Two-way communication**: Connect Claude AI to Ableton Live through a socket-based server
-- **Track manipulation**: Create, modify, and manipulate MIDI and audio tracks
-- **Instrument and effect selection**: Claude can access and load the right instruments, effects and sounds from Ableton's library
-- **Clip creation**: Create and edit MIDI clips with notes
-- **Session control**: Start and stop playback, fire clips, and control transport
+The AbletonMCP system is composed of three main components that work together to bridge the gap between your natural language commands and actions in Ableton Live.
 
-## Components
-
-The system consists of two main components:
-
-1. **Ableton Remote Script** (`Ableton_Remote_Script/__init__.py`): A MIDI Remote Script for Ableton Live that creates a socket server to receive and execute commands
-2. **MCP Server** (`server.py`): A Python server that implements the Model Context Protocol and connects to the Ableton Remote Script
-
-## Installation
-
-### Installing via Smithery
-
-To install Ableton Live Integration for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@ahujasid/ableton-mcp):
-
-```bash
-npx -y @smithery/cli install @ahujasid/ableton-mcp --client claude
 ```
++-----------------+      +----------------------+      +--------------------------+
+|   LLM Client    |      |   MCP Server         |      |   Ableton Live           |
+| (Claude, etc.)  |<---->| (ableton_mcp_server.py)|<---->| (MIDI Remote Script)     |
++-----------------+      +----------------------+      +--------------------------+
+       ^                         ^      ^                          ^
+       |                         |      |                          |
+       | HTTP/S (SSE)            |      | Socket                   | MIDI
+       | or Stdio                |      | (Commands/Responses)     | (Real-time Notes)
+       |                         |      |                          |
+       v                         v      v                          v
++-----------------+      +----------------------+      +--------------------------+
+|   User          |      |   MIDI Client        |<---->|   MIDI Server            |
+|   Interface     |      | (midi_client.py)     |      | (midi_server.py)         |
++-----------------+      +----------------------+      +--------------------------+
+```
+
+1.  **Ableton Remote Script (`AbletonMCP_Remote_Script`)**:
+    *   This is a Python script that runs directly inside Ableton Live as a MIDI Remote Script (also known as a Control Surface).
+    *   It opens a TCP socket server that listens for commands from the MCP Server.
+    *   It's responsible for executing the commands it receives by interacting with the Ableton Live API (e.g., creating a track, adding a device, playing a clip).
+    *   It also includes a `MidiServer` that runs in a separate thread. This server creates a virtual MIDI port and listens for incoming MIDI notes from the `SocketMidiServer`, which it then forwards to a selected track in Ableton.
+
+2.  **MCP Server (`MCP_Server`)**:
+    *   This is the central hub of the system. It's a Python server that implements the Model Context Protocol (MCP).
+    *   It exposes a set of "tools" that an LLM can call. When a tool is called, the server translates the request into a command that the Ableton Remote Script can understand.
+    *   It communicates with the Remote Script over a TCP socket, sending commands and receiving responses.
+    *   It includes a `MidiClient` for sending real-time MIDI messages to the `MidiServer` in the Remote Script, and a `SocketMidiServer` for receiving MIDI messages from Ableton.
+    *   It can be run in two modes:
+        *   **Standard I/O:** For use with local clients like the Claude for Desktop app.
+        *   **HTTP/S (SSE):** For use with web-based clients or other services that need to connect over the network.
+
+3.  **LLM Client**:
+    *   This is the interface you use to interact with the system (e.g., Claude, Cursor, or any other MCP-compatible client).
+    *   You give it natural language prompts (e.g., "create a new MIDI track").
+    *   The LLM interprets your prompt and decides which tool from the MCP Server to call to fulfill your request.
+
+## Installation and Setup
 
 ### Prerequisites
 
-- Ableton Live 10 or newer
-- Python 3.8 or newer
-- [uv package manager](https://astral.sh/uv)
+- Ableton Live 10 or newer.
+- Python 3.8 or newer.
+- `uv` package manager. If you don't have it, you can install it easily:
+  - **macOS (via Homebrew):** `brew install uv`
+  - **Other systems:** `pip install uv` or follow the [official installation guide](https://docs.astral.sh/uv/getting-started/installation/).
 
-If you're on Mac, please install uv as:
-```
-brew install uv
-```
+### Step 1: Install the MCP Server
 
-Otherwise, install from [uv's official website][https://docs.astral.sh/uv/getting-started/installation/]
+You can install the server using `uvx`, which is a command provided by `uv` to run packages in temporary virtual environments.
 
-⚠️ Do not proceed before installing UV
+**For Claude for Desktop:**
 
-### Claude for Desktop Integration
+1.  Go to Claude > Settings > Developer > Edit Config > `claude_desktop_config.json`.
+2.  Add the following configuration to the `mcpServers` object:
 
-[Follow along with the setup instructions video](https://youtu.be/iJWJqyVuPS8)
-
-1. Go to Claude > Settings > Developer > Edit Config > claude_desktop_config.json to include the following:
-
-```json
-{
-    "mcpServers": {
-        "AbletonMCP": {
-            "command": "uvx",
-            "args": [
-                "ableton-mcp"
-            ]
+    ```json
+    {
+        "mcpServers": {
+            "AbletonMCP": {
+                "command": "uvx",
+                "args": [
+                    "ableton-mcp"
+                ]
+            }
         }
     }
-}
-```
+    ```
 
-### Cursor Integration
+**For Cursor:**
 
-Run ableton-mcp without installing it permanently through uvx. Go to Cursor Settings > MCP and paste this as a command:
+1.  Go to Cursor Settings > MCP.
+2.  Paste the following command in the command input field:
+    ```
+    uvx ableton-mcp
+    ```
 
-```
-uvx ableton-mcp
-```
+**Important:** Only run one instance of the MCP server at a time (either in Cursor or Claude Desktop, not both).
 
-⚠️ Only run one instance of the MCP server (either on Cursor or Claude Desktop), not both
+### Step 2: Install the Ableton Remote Script
 
-### Installing the Ableton Remote Script
+1.  Download the `AbletonMCP_Remote_Script` folder from this repository.
+2.  Copy the entire `AbletonMCP_Remote_Script` folder into Ableton's MIDI Remote Scripts directory. The location of this directory varies depending on your operating system and Ableton version. Here are some common locations:
 
-[Follow along with the setup instructions video](https://youtu.be/iJWJqyVuPS8)
+    *   **macOS:**
+        *   Right-click on the Ableton Live application in your Applications folder and select "Show Package Contents". Navigate to `Contents/App-Resources/MIDI Remote Scripts/`.
+        *   Alternatively, check `/Users/[YourUsername]/Library/Preferences/Ableton/Live XX/User Remote Scripts` (where `XX` is your Ableton version).
+    *   **Windows:**
+        *   `C:\Users\[YourUsername]\AppData\Roaming\Ableton\Live x.x.x\Preferences\User Remote Scripts`
+        *   `C:\ProgramData\Ableton\Live XX\Resources\MIDI Remote Scripts\`
 
-1. Download the `AbletonMCP_Remote_Script/__init__.py` file from this repo
+3.  Launch Ableton Live.
+4.  Go to Settings/Preferences → Link, Tempo & MIDI.
+5.  In one of the "Control Surface" dropdowns, select "AbletonMCP".
+6.  Set the "Input" and "Output" for the AbletonMCP control surface to "None".
 
-2. Copy the folder to Ableton's MIDI Remote Scripts directory. Different OS and versions have different locations. **One of these should work, you might have to look**:
+## Security
 
-   **For macOS:**
-   - Method 1: Go to Applications > Right-click on Ableton Live app → Show Package Contents → Navigate to:
-     `Contents/App-Resources/MIDI Remote Scripts/`
-   - Method 2: If it's not there in the first method, use the direct path (replace XX with your version number):
-     `/Users/[Username]/Library/Preferences/Ableton/Live XX/User Remote Scripts`
-   
-   **For Windows:**
-   - Method 1:
-     C:\Users\[Username]\AppData\Roaming\Ableton\Live x.x.x\Preferences\User Remote Scripts 
-   - Method 2:
-     `C:\ProgramData\Ableton\Live XX\Resources\MIDI Remote Scripts\`
-   - Method 3:
-     `C:\Program Files\Ableton\Live XX\Resources\MIDI Remote Scripts\`
-   *Note: Replace XX with your Ableton version number (e.g., 10, 11, 12)*
+When you run the MCP server in HTTP mode, you are potentially exposing your Ableton Live session to the network. It is crucial to take steps to secure the server.
 
-4. Create a folder called 'AbletonMCP' in the Remote Scripts directory and paste the downloaded '\_\_init\_\_.py' file
+### API Key Authentication
 
-3. Launch Ableton Live
+The server uses API key authentication to ensure that only authorized clients can send commands.
 
-4. Go to Settings/Preferences → Link, Tempo & MIDI
+-   The server expects an API key to be provided in the `Authorization` header of every HTTP request (e.g., `Authorization: Bearer your-api-key`).
+-   You must set the `ABLETON_MCP_API_KEY` environment variable on the machine running the server. If this variable is not set, the server will use a default, insecure key and will not be secure.
 
-5. In the Control Surface dropdown, select "AbletonMCP"
+**Setting the Environment Variable:**
 
-6. Set Input and Output to "None"
+-   **macOS/Linux:**
+    ```bash
+    export ABLETON_MCP_API_KEY="your-super-secret-and-long-api-key"
+    ```
+-   **Windows (PowerShell):**
+    ```powershell
+    $env:ABLETON_MCP_API_KEY="your-super-secret-and-long-api-key"
+    ```
 
-## Usage
+### Running with HTTPS (SSL/TLS)
 
-### Starting the Connection
+To encrypt the traffic between the client and the server, you should run the server with HTTPS. For local development, you can generate a self-signed certificate.
 
-1. Ensure the Ableton Remote Script is loaded in Ableton Live
-2. Make sure the MCP server is configured in Claude Desktop or Cursor
-3. The connection should be established automatically when you interact with Claude
+1.  **Generate a certificate:**
+    ```bash
+    openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+    ```
+2.  **Run the server with the certificate:**
+    Modify the `main` function in `MCP_Server/ableton_mcp_server.py` to include the paths to your key and certificate files:
+    ```python
+    def main():
+        """Run the MCP server"""
+        mcp.run(
+            transport="sse",
+            port=8000,
+            ssl_keyfile="key.pem",
+            ssl_certfile="cert.pem"
+        )
+    ```
 
-### Using with Claude
+**Note:** For production use, you should always use a certificate from a trusted Certificate Authority (CA).
 
-Once the config file has been set on Claude, and the remote script is running in Ableton, you will see a hammer icon with tools for the Ableton MCP.
+## API Reference
 
-## Running the Server in HTTP Mode
-
-By default, the MCP server communicates with the client over standard I/O. However, you can also run the server in HTTP mode to allow for remote connections (e.g., from a web-based client or a service like Gemini Pro).
-
-To run the server in HTTP mode, you will need to modify the `main` function in `MCP_Server/server.py` to look like this:
-
-```python
-def main():
-    """Run the MCP server"""
-    mcp.run(transport="sse", port=8000)
-```
-
-This will start an HTTP server on port 8000 using the Server-Sent Events (SSE) transport.
-
-### Security Considerations
-
-When running the server in HTTP mode, it is crucial to consider the security implications of exposing your Ableton Live instance to the network. This integration includes two main security features:
-
-1.  **API Key Authentication:** The server requires an API key to be sent in the `Authorization` header of every request. The server will reject any request without a valid API key.
-
-2.  **HTTPS (SSL/TLS):** To encrypt the communication between the client and the server, you should run the server with HTTPS.
-
-### Setting up the API Key
-
-The server loads the API key from the `ABLETON_MCP_API_KEY` environment variable. If this variable is not set, it will fall back to a default, insecure key.
-
-To set the environment variable:
-
-**macOS/Linux:**
-```bash
-export ABLETON_MCP_API_KEY="your-super-secret-api-key"
-```
-
-**Windows:**
-```powershell
-$env:ABLETON_MCP_API_KEY="your-super-secret-api-key"
-```
-
-### Setting up HTTPS
-
-To run the server with HTTPS, you will need an SSL certificate. For local development, you can generate a self-signed certificate using `openssl`:
-
-```bash
-openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
-```
-
-This will create two files: `key.pem` and `cert.pem`. You can then run the server with these files:
-
-```python
-def main():
-    """Run the MCP server"""
-    mcp.run(
-        transport="sse",
-        port=8000,
-        ssl_keyfile="key.pem",
-        ssl_certfile="cert.pem"
-    )
-```
-
-**Note:** When using a self-signed certificate, your client will need to be configured to trust it. For production use, you should use a certificate from a trusted Certificate Authority (CA).
-
-## Available Tools
-
-Here is a comprehensive list of all the tools available through the AbletonMCP integration:
+Here is a comprehensive list of all the tools available through the AbletonMCP integration.
 
 ### Session & Transport
-- `get_session_info()`: Get detailed information about the current Ableton session.
-- `set_tempo(tempo: float)`: Set the tempo of the Ableton session.
-- `start_playback()`: Start playing the Ableton session.
+- `get_session_info()`: Get detailed information about the current Ableton session, including tracks, scenes, and tempo.
+- `set_tempo(tempo: float)`: Set the tempo of the Ableton session in BPM.
+- `start_playback()`: Start playing the Ableton session from the current arrangement position.
 - `stop_playback()`: Stop playing the Ableton session.
-- `undo()`: Undo the last action.
+- `undo()`: Undo the last action performed in Ableton.
 - `redo()`: Redo the last undone action.
 
 ### Track Management
-- `get_track_info(track_index: int)`: Get detailed information about a specific track.
-- `create_midi_track(index: int = -1)`: Create a new MIDI track.
+- `get_track_info(track_index: int)`: Get detailed information about a specific track, including its name, devices, and clips.
+- `create_midi_track(index: int = -1)`: Create a new MIDI track. If `index` is not provided, the track is created at the end.
 - `create_audio_track(index: int = -1)`: Create a new audio track.
 - `create_return_track()`: Create a new return track.
-- `delete_track(track_index: int)`: Delete a track.
+- `delete_track(track_index: int)`: Delete a track at the specified index.
 - `set_track_name(track_index: int, name: str)`: Set the name of a track.
-- `group_tracks(track_indices: list)`: Group tracks together.
+- `group_tracks(track_indices: list)`: Group a list of tracks together.
 
 ### Device & Preset Management
-- `get_device_details(track_index: int, device_index: int)`: Get detailed information about a specific device on a track.
+- `get_device_details(track_index: int, device_index: int)`: Get detailed information about a specific device on a track, including all its parameters.
 - `set_device_parameter(track_index: int, device_index: int, parameter_name: str, value: float)`: Set a parameter on a device.
 - `randomize_device_parameters(track_index: int, device_index: int)`: Randomize the parameters of a device.
 - `save_device_parameters_to_json(track_index: int, device_index: int, filepath: str)`: Saves the parameters of a device to a JSON file.
@@ -212,13 +182,20 @@ Here is a comprehensive list of all the tools available through the AbletonMCP i
 
 ### Clip Manipulation
 - `create_clip(track_index: int, clip_index: int, length: float = 4.0)`: Create a new MIDI clip.
-- `add_notes_to_clip(track_index: int, clip_index: int, notes: list)`: Add MIDI notes to a clip.
+- `add_notes_to_clip(track_index: int, clip_index: int, notes: list)`: Add MIDI notes to a clip. Each note should be a dictionary with `pitch`, `start_time`, `duration`, and `velocity`.
 - `set_clip_name(track_index: int, clip_index: int, name: str)`: Set the name of a clip.
 - `delete_clip(track_index: int, clip_index: int)`: Delete a clip.
-- `set_clip_color(track_index: int, clip_index: int, color: int)`: Set the color of a clip.
-- `fire_clip(track_index: int, clip_index: int)`: Fire a clip.
+- `set_clip_color(track_index: int, clip_index: int, color: int)`: Set the color of a clip using an integer representation.
+- `fire_clip(track_index: int, clip_index: int)`: Start playing a clip.
 - `stop_clip(track_index: int, clip_index: int)`: Stop a clip.
-- `generate_midi(track_index: int, clip_index: int, description: str)`: Generates a MIDI clip based on a description.
+- `loop_clip(track_index: int, clip_index: int, is_looping: bool)`: Set whether a clip should loop.
+- `set_clip_length(track_index: int, clip_index: int, length: float)`: Set the length of a clip in beats.
+
+### Intelligent MIDI Generation
+- `generate_midi(track_index: int, clip_index: int, description: str)`: Generates a MIDI clip based on a simple description (e.g., "a C major scale").
+- `generate_intelligent_midi(track_index: int, clip_index: int, description: str)`: Generates a more complex MIDI clip based on a detailed description (e.g., "a funky bassline in C minor").
+- `build_a_drum_beat(genre: str)`: Build a drum beat for a specific genre (e.g., "house", "trap").
+- `harmonize_melody(track_index: int, clip_index: int)`: Harmonize a melody with a simple chord progression.
 
 ### Scene Control
 - `get_scene_info()`: Get information about all scenes.
@@ -234,51 +211,27 @@ Here is a comprehensive list of all the tools available through the AbletonMCP i
 - `load_drum_kit(track_index: int, rack_uri: str, kit_path: str)`: Load a drum rack and then load a specific drum kit into it.
 
 ### Real-time MIDI
-- `send_note_on(channel: int, note: int, velocity: int)`: Send a MIDI note-on message.
-- `send_note_off(channel: int, note: int)`: Send a MIDI note-off message.
+- `send_note_on(channel: int, note: int, velocity: int)`: Send a MIDI note-on message in real-time.
+- `send_note_off(channel: int, note: int)`: Send a MIDI note-off message in real-time.
 - `get_midi_messages()`: Get any MIDI messages received from Ableton since the last call.
-
-## Example Commands
-
-Here are some examples of what you can ask Claude to do:
-
-- "Create an 80s synthwave track" [Demo](https://youtu.be/VH9g66e42XA)
-- "Create a Metro Boomin style hip-hop beat"
-- "Create a new MIDI track with a synth bass instrument"
-- "Add reverb to my drums"
-- "Create a 4-bar MIDI clip with a simple melody"
-- "Get information about the current Ableton session"
-- "Load a 808 drum rack into the selected track"
-- "Add a jazz chord progression to the clip in track 1"
-- "Set the tempo to 120 BPM"
-- "Play the clip in track 2"
-
 
 ## Troubleshooting
 
-- **Connection issues**: Make sure the Ableton Remote Script is loaded, and the MCP server is configured on Claude
-- **Timeout errors**: Try simplifying your requests or breaking them into smaller steps
-- **Have you tried turning it off and on again?**: If you're still having connection errors, try restarting both Claude and Ableton Live
+- **Connection Issues:**
+  - Ensure the "AbletonMCP" Control Surface is selected in Ableton's preferences and that no other scripts are using the same underlying ports.
+  - Make sure the MCP server is running (either via your client like Claude or Cursor, or manually).
+  - If you're running the server in HTTP mode, ensure that your client can reach the server's address and port, and that your firewall is not blocking the connection.
 
-## Technical Details
+- **Timeout Errors:**
+  - Some commands, like searching the browser or loading complex devices, can take a few moments. If you experience timeouts, try to simplify your requests or wait for the previous command to complete before sending a new one.
+  - Restarting Ableton Live can sometimes resolve performance issues.
 
-### Communication Protocol
+- **"No module named 'mcp'" errors:**
+  - This usually means that the Python environment is not set up correctly. Ensure that you are using `uvx` to run the server, as this will handle the installation of all necessary dependencies in a temporary environment.
 
-The system uses a simple JSON-based protocol over TCP sockets:
-
-- Commands are sent as JSON objects with a `type` and optional `params`
-- Responses are JSON objects with a `status` and `result` or `message`
-
-### Limitations & Security Considerations
-
-- Creating complex musical arrangements might need to be broken down into smaller steps
-- The tool is designed to work with Ableton's default devices and browser items
-- Always save your work before extensive experimentation
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+- **"Have you tried turning it off and on again?":**
+  - Seriously. A clean restart of both Ableton Live and your LLM client can resolve many transient issues.
 
 ## Disclaimer
 
-This is a third-party integration and not made by Ableton.
+This is a third-party integration and is not officially supported by Ableton. Use it at your own risk, and always save your work before performing complex operations.
