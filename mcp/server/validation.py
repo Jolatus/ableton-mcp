@@ -135,6 +135,11 @@ def get_validated_tool(tool_func: Callable) -> Callable:
                     raise ValidationError(f"Parameter '{name}' must be one of 'lo-fi hip hop', 'house', 'trap'.")
             if name == "key":
                 validate_not_empty(name, value)
+            if name == "preset_type":
+                if value.lower() not in ["pad", "bass", "lead"]:
+                    raise ValidationError(f"Parameter '{name}' must be one of 'pad', 'bass', 'lead'.")
+            if name == "concept":
+                validate_not_empty(name, value)
 
 
         try:

@@ -1883,5 +1883,150 @@ def auto_mix_tracks(ctx: Context) -> str:
         logger.error(f"Error during auto-mixing: {str(e)}")
         return f"Error during auto-mixing: {str(e)}"
 
+def _generate_operator_params(preset_type: str) -> dict:
+    """Helper function to generate parameters for an Operator synth preset."""
+    import random
+
+    params = {}
+
+    # Algorithm
+    params['Algorithm'] = random.randint(0, 10)
+
+    # ADSR ranges based on preset type
+    if preset_type == 'pad':
+        attack_range = (0.5, 2.0)
+        decay_range = (1.0, 3.0)
+        release_range = (1.0, 4.0)
+    elif preset_type == 'bass':
+        attack_range = (0.01, 0.1)
+        decay_range = (0.1, 0.5)
+        release_range = (0.1, 0.5)
+    else: # lead
+        attack_range = (0.01, 0.2)
+        decay_range = (0.2, 1.0)
+        release_range = (0.2, 1.0)
+
+    # Oscillators
+    for osc in ['A', 'B', 'C', 'D']:
+        if random.random() > 0.3: # 70% chance of oscillator being active
+            params[f'Osc {osc} On'] = 1
+            params[f'Osc {osc} Wave'] = random.randint(0, 7) # Different waveforms
+            params[f'Osc {osc} Coarse'] = random.choice([0, 12, 24, 36])
+            params[f'Osc {osc} Fine'] = random.uniform(-100, 100)
+            params[f'Osc {osc} Level'] = random.uniform(-24, 0)
+            params[f'Osc {osc} Attack'] = random.uniform(*attack_range)
+            params[f'Osc {osc} Decay'] = random.uniform(*decay_range)
+            params[f'Osc {osc} Release'] = random.uniform(*release_range)
+        else:
+            params[f'Osc {osc} On'] = 0
+
+    # Filter
+    params['Filter On'] = 1 if random.random() > 0.2 else 0
+    params['Filter Freq'] = random.uniform(100, 8000)
+    params['Filter Res'] = random.uniform(0, 1)
+
+    return params
+
+@mcp.tool()
+@get_validated_tool
+def generate_synth_preset(ctx: Context, track_index: int, device_index: int, preset_type: str = "pad") -> str:
+    """
+    Generates a new synth preset for a device (designed for Ableton's Operator).
+
+    Parameters:
+    - track_index: The index of the track where the device is located.
+    - device_index: The index of the device on the track.
+    - preset_type: The type of preset to generate ('pad', 'bass', 'lead').
+    """
+    try:
+        ableton = get_ableton_connection()
+
+        device_details_str = get_device_details(ctx, track_index, device_index)
+        device_details = json.loads(device_details_str)
+
+        if "Operator" not in device_details.get("name", ""):
+            return "This tool is designed to work with Ableton's Operator synth. Please select an Operator device."
+
+        # Generate a set of parameters based on the preset type
+        params_to_set = _generate_operator_params(preset_type)
+
+        # Set the parameters
+        for name, value in params_to_set.items():
+            # Use a try-except block here because not all generated params might exist on all versions of Operator
+            try:
+                set_device_parameter(ctx, track_index, device_index, name, value)
+            except Exception:
+                logger.warning(f"Could not set parameter '{name}' on Operator. It might not exist.")
+
+        return f"Generated a new '{preset_type}' preset for Operator on track {track_index}."
+
+    except Exception as e:
+        logger.error(f"Error generating synth preset: {str(e)}")
+        return f"Error generating synth preset: {str(e)}"
+
+def _get_music_theory_notes(concept: str) -> (list, float):
+    """Helper function to generate notes for a music theory concept."""
+    import random
+
+    notes = []
+    clip_length = 4.0
+
+    if "major scale" in concept.lower():
+        root_str = concept.split(' ')[0]
+        root_note = NOTES.get(root_str.upper(), 60)
+        intervals = [0, 2, 4, 5, 7, 9, 11, 12]
+        for i, interval in enumerate(intervals):
+            notes.append({"pitch": root_note + interval, "start_time": i * 0.5, "duration": 0.4, "velocity": 100})
+        clip_length = 4.0
+
+    elif "minor scale" in concept.lower():
+        root_str = concept.split(' ')[0]
+        root_note = NOTES.get(root_str.upper(), 60)
+        intervals = [0, 2, 3, 5, 7, 8, 10, 12]
+        for i, interval in enumerate(intervals):
+            notes.append({"pitch": root_note + interval, "start_time": i * 0.5, "duration": 0.4, "velocity": 100})
+        clip_length = 4.0
+
+    elif "circle of fifths" in concept.lower():
+        root_note = 60 # Start on C
+        for i in range(12):
+            notes.append({"pitch": root_note, "start_time": i * 1.0, "duration": 0.9, "velocity": 100})
+            root_note = (root_note + 7) % 12 + 60 # Move up a fifth
+        clip_length = 12.0
+
+    return notes, clip_length
+
+@mcp.tool()
+@get_validated_tool
+def explain_music_theory_concept(ctx: Context, concept: str) -> str:
+    """
+    Generates a MIDI clip to visually explain a music theory concept.
+
+    Parameters:
+    - concept: The music theory concept to explain (e.g., "C Major Scale", "Circle of Fifths").
+    """
+    try:
+        notes, clip_length = _get_music_theory_notes(concept)
+
+        if not notes:
+            return f"I don't know how to explain the concept '{concept}'. Try 'C Major Scale' or 'Circle of Fifths'."
+
+        ableton = get_ableton_connection()
+
+        track_info = ableton.send_command("create_midi_track", {"name": concept.title()})
+        track_index = track_info.get("index")
+
+        if track_index is None:
+            return "Error: Could not create a new track for the explanation."
+
+        ableton.send_command("create_clip", {"track_index": track_index, "clip_index": 0, "length": clip_length})
+        ableton.send_command("add_notes_to_clip", {"track_index": track_index, "clip_index": 0, "notes": notes})
+
+        return f"I've created a new track and MIDI clip to demonstrate '{concept}'."
+
+    except Exception as e:
+        logger.error(f"Error explaining music theory concept: {str(e)}")
+        return f"Error explaining music theory concept: {str(e)}"
+
 if __name__ == "__main__":
     main()
