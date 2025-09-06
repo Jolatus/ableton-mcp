@@ -114,6 +114,12 @@ This suite of tools leverages music theory and rule-based systems to provide int
 #### **Creative Sound Design**
 - `intelligent_randomize(track_index: int, device_index: int, style: str = "subtle")`: Intelligently randomizes device parameters based on a style ('subtle', 'rhythmic', 'chaotic').
   - **Example:** `intelligent_randomize(track_index=0, device_index=0, style="rhythmic")`
+- `generate_synth_preset(track_index: int, device_index: int, preset_type: str = "pad")`: Generates a new synth preset for a device (designed for Ableton's Operator).
+  - **Example:** `generate_synth_preset(track_index=0, device_index=0, preset_type="bass")`
+
+#### **Music Education**
+- `explain_music_theory_concept(concept: str)`: Generates a MIDI clip to visually explain a music theory concept.
+  - **Example:** `explain_music_theory_concept(concept="C Major Scale")`
 
 #### **AI Mixing Assistant**
 - `analyze_mix()`: Analyzes the current mix and provides suggestions for improvement (e.g., headroom, stereo balance, EQ).
