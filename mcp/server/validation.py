@@ -118,6 +118,23 @@ def get_validated_tool(tool_func: Callable) -> Callable:
                 validate_type(name, value, bool)
             if name == "description":
                 validate_not_empty(name, value)
+            if name == "progression":
+                validate_not_empty(name, value)
+            if name == "beats_per_chord":
+                validate_range(name, value, 0.1, 64.0)
+            if name == "octave" or name == "chord_octave" or name == "bass_octave":
+                validate_range(name, value, 0, 8)
+            if name == "bass_pattern":
+                if value not in ["root_on_beat", "quarter_notes", "eighth_notes"]:
+                    raise ValidationError(f"Parameter '{name}' must be one of 'root_on_beat', 'quarter_notes', 'eighth_notes'.")
+            if name == "style":
+                if value not in ["subtle", "rhythmic", "chaotic"]:
+                    raise ValidationError(f"Parameter '{name}' must be one of 'subtle', 'rhythmic', 'chaotic'.")
+            if name == "genre":
+                if value.lower() not in ["lo-fi hip hop", "house", "trap"]:
+                    raise ValidationError(f"Parameter '{name}' must be one of 'lo-fi hip hop', 'house', 'trap'.")
+            if name == "key":
+                validate_not_empty(name, value)
 
 
         try:

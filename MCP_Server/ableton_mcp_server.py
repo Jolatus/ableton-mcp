@@ -3,6 +3,7 @@ from mcp.server.fastmcp import FastMCP, Context
 from .midi_client import MidiClient
 from .socket_midi_server import SocketMidiServer
 from mcp.server.validation import get_validated_tool
+from mcp.server.music_theory import chord_to_midi, parse_chord_name, NOTES
 import socket
 import json
 import logging
@@ -1441,6 +1442,446 @@ def generate_intelligent_midi(ctx: Context, track_index: int, clip_index: int, d
     except Exception as e:
         logger.error(f"Error generating intelligent MIDI: {str(e)}")
         return f"Error generating intelligent MIDI: {str(e)}"
+
+@mcp.tool()
+@get_validated_tool
+def generate_chord_progression(ctx: Context, track_index: int, clip_index: int, progression: str, beats_per_chord: float = 4.0, octave: int = 4) -> str:
+    """
+    Generates a MIDI clip with a specified chord progression.
+
+    Parameters:
+    - track_index: The index of the track to create the clip on.
+    - clip_index: The index of the clip slot to create the clip in.
+    - progression: A comma-separated string of chord names (e.g., "Cmaj7, G7, Am, F").
+    - beats_per_chord: The duration of each chord in beats.
+    - octave: The MIDI octave for the root note of the chords.
+    """
+    try:
+        chord_names = [name.strip() for name in progression.split(',')]
+        notes = []
+        current_time = 0.0
+
+        for chord_name in chord_names:
+            try:
+                midi_notes = chord_to_midi(chord_name, octave)
+                for pitch in midi_notes:
+                    notes.append({
+                        "pitch": pitch,
+                        "start_time": current_time,
+                        "duration": beats_per_chord * 0.9,  # Leave a small gap
+                        "velocity": 90,
+                        "mute": False
+                    })
+                current_time += beats_per_chord
+            except ValueError as e:
+                return f"Error parsing chord '{chord_name}': {e}"
+
+        if not notes:
+            return "No valid chords were found in the progression."
+
+        clip_length = len(chord_names) * beats_per_chord
+
+        ableton = get_ableton_connection()
+
+        # Create a new clip
+        ableton.send_command("create_clip", {
+            "track_index": track_index,
+            "clip_index": clip_index,
+            "length": clip_length
+        })
+
+        # Add the notes to the clip
+        result = ableton.send_command("add_notes_to_clip", {
+            "track_index": track_index,
+            "clip_index": clip_index,
+            "notes": notes
+        })
+
+        return f"Generated chord progression '{progression}' with {len(notes)} notes on track {track_index}, slot {clip_index}."
+
+    except Exception as e:
+        logger.error(f"Error generating chord progression: {str(e)}")
+        return f"Error generating chord progression: {str(e)}"
+
+@mcp.tool()
+@get_validated_tool
+def generate_progression_with_bassline(
+    ctx: Context,
+    progression: str,
+    beats_per_chord: float = 4.0,
+    chord_octave: int = 4,
+    bass_octave: int = 2,
+    bass_pattern: str = "root_on_beat"
+) -> str:
+    """
+    Generates a MIDI clip with a chord progression and a corresponding bassline on two new tracks.
+
+    Parameters:
+    - progression: A comma-separated string of chord names (e.g., "Cmaj7, G7, Am, F").
+    - beats_per_chord: The duration of each chord in beats.
+    - chord_octave: The MIDI octave for the chords.
+    - bass_octave: The MIDI octave for the bassline.
+    - bass_pattern: The rhythmic pattern for the bassline ('root_on_beat', 'quarter_notes', 'eighth_notes').
+    """
+    try:
+        ableton = get_ableton_connection()
+
+        # 1. Create tracks
+        chord_track_info = ableton.send_command("create_midi_track", {"name": "Chords"})
+        bass_track_info = ableton.send_command("create_midi_track", {"name": "Bassline"})
+        chord_track_index = chord_track_info.get("index")
+        bass_track_index = bass_track_info.get("index")
+
+        if chord_track_index is None or bass_track_index is None:
+            return "Error: Could not create new tracks for the progression."
+
+        # 2. Generate notes
+        chord_names = [name.strip() for name in progression.split(',')]
+        chord_notes = []
+        bass_notes = []
+        current_time = 0.0
+
+        for chord_name in chord_names:
+            try:
+                # Generate chord notes
+                midi_chord = chord_to_midi(chord_name, chord_octave)
+                for pitch in midi_chord:
+                    chord_notes.append({"pitch": pitch, "start_time": current_time, "duration": beats_per_chord * 0.9, "velocity": 90})
+
+                # Generate bass notes
+                root_note_name, _ = parse_chord_name(chord_name)
+                root_midi = NOTES[root_note_name] + (bass_octave * 12)
+
+                if bass_pattern == "root_on_beat":
+                    bass_notes.append({"pitch": root_midi, "start_time": current_time, "duration": beats_per_chord * 0.9, "velocity": 100})
+                elif bass_pattern == "quarter_notes":
+                    for i in range(int(beats_per_chord)):
+                        bass_notes.append({"pitch": root_midi, "start_time": current_time + i, "duration": 0.9, "velocity": 100})
+                elif bass_pattern == "eighth_notes":
+                    for i in range(int(beats_per_chord * 2)):
+                        bass_notes.append({"pitch": root_midi, "start_time": current_time + i * 0.5, "duration": 0.4, "velocity": 100})
+
+                current_time += beats_per_chord
+
+            except (ValueError, KeyError) as e:
+                return f"Error parsing chord '{chord_name}': {e}"
+
+        clip_length = len(chord_names) * beats_per_chord
+
+        # 3. Create clips and add notes
+        ableton.send_command("create_clip", {"track_index": chord_track_index, "clip_index": 0, "length": clip_length})
+        ableton.send_command("add_notes_to_clip", {"track_index": chord_track_index, "clip_index": 0, "notes": chord_notes})
+
+        ableton.send_command("create_clip", {"track_index": bass_track_index, "clip_index": 0, "length": clip_length})
+        ableton.send_command("add_notes_to_clip", {"track_index": bass_track_index, "clip_index": 0, "notes": bass_notes})
+
+        return f"Generated chord progression on track {chord_track_index} and bassline on track {bass_track_index}."
+
+    except Exception as e:
+        logger.error(f"Error generating progression with bassline: {str(e)}")
+        return f"Error generating progression with bassline: {str(e)}"
+
+
+@mcp.tool()
+@get_validated_tool
+def intelligent_randomize(ctx: Context, track_index: int, device_index: int, style: str = "subtle") -> str:
+    """
+    Intelligently randomizes the parameters of a device based on a specified style.
+
+    Parameters:
+    - track_index: The index of the track where the device is located.
+    - device_index: The index of the device on the track.
+    - style: The randomization style ('subtle', 'rhythmic', 'chaotic').
+    """
+    try:
+        import random
+
+        ableton = get_ableton_connection()
+
+        # 1. Get device parameters
+        device_details_str = get_device_details(ctx, track_index, device_index)
+        device_details = json.loads(device_details_str)
+        parameters = device_details.get("parameters", [])
+
+        if not parameters:
+            return f"Device at track {track_index}, device {device_index} has no parameters to randomize."
+
+        changed_params = []
+
+        # 2. Apply randomization based on style
+        for param in parameters:
+            # Skip read-only or un-automatable parameters
+            if param.get("is_automatable") is False:
+                continue
+
+            param_name = param["name"]
+            min_val, max_val = param["min"], param["max"]
+
+            should_randomize = False
+            new_value = param["value"]
+
+            if style == "subtle":
+                # Randomize a small subset of parameters by a small amount
+                if random.random() < 0.2:
+                    should_randomize = True
+                    change_range = (max_val - min_val) * 0.1
+                    new_value = param["value"] + random.uniform(-change_range, change_range)
+
+            elif style == "rhythmic":
+                # Focus on rhythmic parameters
+                if any(k in param_name.lower() for k in ["rate", "sync", "lfo", "env", "attack", "decay", "release"]):
+                    if random.random() < 0.7:
+                        should_randomize = True
+                        new_value = random.uniform(min_val, max_val)
+
+            elif style == "chaotic":
+                # Randomize most parameters
+                if random.random() < 0.8:
+                    should_randomize = True
+                    new_value = random.uniform(min_val, max_val)
+
+            if should_randomize:
+                # Clamp the new value to be within the min/max range
+                new_value = max(min_val, min(max_val, new_value))
+
+                # Set the parameter
+                set_device_parameter(ctx, track_index, device_index, param_name, new_value)
+                changed_params.append(param_name)
+
+        if not changed_params:
+            return f"No parameters were randomized for device on track {track_index} with style '{style}'."
+
+        return f"Intelligently randomized {len(changed_params)} parameters on device {device_index} of track {track_index} with style '{style}'."
+
+    except Exception as e:
+        logger.error(f"Error during intelligent randomization: {str(e)}")
+        return f"Error during intelligent randomization: {str(e)}"
+
+def _get_genre_recipe(genre, key):
+    """A helper function to store and retrieve recipes for different genres."""
+    # Note: Key parsing is basic for this example. A more robust implementation
+    # would use the music_theory module to transpose progressions.
+    root_note = key.split(' ')[0]
+
+    recipes = {
+        "lo-fi hip hop": {
+            "tempo": 85,
+            "drum_rack_query": "Kit-Core 909",
+            "drum_pattern": [
+                # Kick
+                {"pitch": 36, "start_time": 0.0, "duration": 0.1, "velocity": 110},
+                {"pitch": 36, "start_time": 1.0, "duration": 0.1, "velocity": 80},
+                {"pitch": 36, "start_time": 2.5, "duration": 0.1, "velocity": 100},
+                # Snare
+                {"pitch": 38, "start_time": 1.0, "duration": 0.1, "velocity": 120},
+                {"pitch": 38, "start_time": 3.0, "duration": 0.1, "velocity": 110},
+                # Hi-hat
+                {"pitch": 42, "start_time": 0.0, "duration": 0.1, "velocity": 90},
+                {"pitch": 42, "start_time": 0.5, "duration": 0.1, "velocity": 70},
+                {"pitch": 42, "start_time": 1.0, "duration": 0.1, "velocity": 90},
+                {"pitch": 42, "start_time": 1.5, "duration": 0.1, "velocity": 70},
+                {"pitch": 42, "start_time": 2.0, "duration": 0.1, "velocity": 90},
+                {"pitch": 42, "start_time": 2.5, "duration": 0.1, "velocity": 70},
+                {"pitch": 42, "start_time": 3.0, "duration": 0.1, "velocity": 90},
+                {"pitch": 42, "start_time": 3.5, "duration": 0.1, "velocity": 70},
+            ],
+            "chord_instrument_query": "Electric Piano",
+            "bass_instrument_query": "Bass Guitar",
+            "progression": f"{root_note}maj7, G#dim7, {root_note}min7, D#7" # Example progression
+        },
+        "house": {
+            "tempo": 125,
+            "drum_rack_query": "Kit-Core 808",
+            "drum_pattern": [
+                # Four-on-the-floor Kick
+                {"pitch": 36, "start_time": 0.0, "duration": 0.1, "velocity": 127},
+                {"pitch": 36, "start_time": 1.0, "duration": 0.1, "velocity": 127},
+                {"pitch": 36, "start_time": 2.0, "duration": 0.1, "velocity": 127},
+                {"pitch": 36, "start_time": 3.0, "duration": 0.1, "velocity": 127},
+                # Off-beat hi-hat
+                {"pitch": 42, "start_time": 0.5, "duration": 0.1, "velocity": 100},
+                {"pitch": 42, "start_time": 1.5, "duration": 0.1, "velocity": 100},
+                {"pitch": 42, "start_time": 2.5, "duration": 0.1, "velocity": 100},
+                {"pitch": 42, "start_time": 3.5, "duration": 0.1, "velocity": 100},
+                # Clap on 2 and 4
+                {"pitch": 39, "start_time": 1.0, "duration": 0.1, "velocity": 110},
+                {"pitch": 39, "start_time": 3.0, "duration": 0.1, "velocity": 110},
+            ],
+            "chord_instrument_query": "Piano",
+            "bass_instrument_query": "Synth Bass",
+            "progression": f"{root_note}min7, Fmaj7, {root_note}min7, G7" # Example progression
+        }
+    }
+    return recipes.get(genre.lower())
+
+@mcp.tool()
+@get_validated_tool
+def create_song_starter(ctx: Context, genre: str, key: str) -> str:
+    """
+    Creates a full song starter with drums, bass, and chords based on a genre and key.
+
+    Parameters:
+    - genre: The genre of the song starter (e.g., "lo-fi hip hop", "house").
+    - key: The musical key of the song (e.g., "C major", "A minor").
+    """
+    try:
+        recipe = _get_genre_recipe(genre, key)
+        if not recipe:
+            return f"I don't have a recipe for the genre '{genre}'. Available genres: lo-fi hip hop, house."
+
+        ableton = get_ableton_connection()
+
+        # 1. Set tempo
+        set_tempo(ctx, recipe["tempo"])
+
+        # 2. Create Drums
+        drum_track_info = ableton.send_command("create_midi_track", {"name": "Drums"})
+        drum_track_index = drum_track_info.get("index")
+        if drum_track_index is not None:
+            search_results = ableton.send_command("search_browser", {"query": recipe["drum_rack_query"]})
+            if search_results:
+                drum_rack_uri = search_results[0].get("uri")
+                ableton.send_command("load_browser_item", {"track_index": drum_track_index, "item_uri": drum_rack_uri})
+                ableton.send_command("create_clip", {"track_index": drum_track_index, "clip_index": 0, "length": 4.0})
+                ableton.send_command("add_notes_to_clip", {"track_index": drum_track_index, "clip_index": 0, "notes": recipe["drum_pattern"]})
+
+        # 3. Create Chords and Bass
+        progression_result = generate_progression_with_bassline(
+            ctx,
+            progression=recipe["progression"],
+            beats_per_chord=4.0,
+            chord_octave=4,
+            bass_octave=2,
+            bass_pattern="quarter_notes"
+        )
+
+        # 4. Load instruments for Chords and Bass (we need to get their track indices)
+        # This part is tricky as generate_progression_with_bassline doesn't return the indices.
+        # We'll assume they are the last two created tracks.
+        session_info = json.loads(get_session_info(ctx))
+        tracks = session_info.get("tracks", [])
+        chord_track = next((t for t in reversed(tracks) if t["name"] == "Chords"), None)
+        bass_track = next((t for t in reversed(tracks) if t["name"] == "Bassline"), None)
+
+        if chord_track:
+            search_results = ableton.send_command("search_browser", {"query": recipe["chord_instrument_query"]})
+            if search_results:
+                instrument_uri = search_results[0].get("uri")
+                ableton.send_command("load_browser_item", {"track_index": chord_track["index"], "item_uri": instrument_uri})
+
+        if bass_track:
+            search_results = ableton.send_command("search_browser", {"query": recipe["bass_instrument_query"]})
+            if search_results:
+                instrument_uri = search_results[0].get("uri")
+                ableton.send_command("load_browser_item", {"track_index": bass_track["index"], "item_uri": instrument_uri})
+
+        return f"Successfully created a '{genre}' song starter in the key of {key}."
+
+    except Exception as e:
+        logger.error(f"Error creating song starter: {str(e)}")
+        return f"Error creating song starter: {str(e)}"
+
+@mcp.tool()
+@get_validated_tool
+def analyze_mix(ctx: Context) -> str:
+    """
+    Analyzes the current mix and provides suggestions for improvement.
+    """
+    try:
+        suggestions = []
+        ableton = get_ableton_connection()
+        session_info = json.loads(get_session_info(ctx))
+        tracks = session_info.get("tracks", [])
+
+        # --- Analyze Master Track ---
+        master_track = session_info.get("master_track", {})
+        if master_track.get("volume", 0.0) > 0.85: # Corresponds to 0 dB in Ableton
+            suggestions.append("Master track volume is high. Consider lowering it to create more headroom.")
+
+        # --- Analyze Individual Tracks ---
+        pan_left_count = 0
+        pan_right_count = 0
+
+        for track_info in tracks:
+            track_index = track_info["index"]
+            track_details_str = get_track_info(ctx, track_index)
+            track_details = json.loads(track_details_str)
+
+            # Analyze volume
+            if track_details.get("volume", 0.0) >= 0.85:
+                suggestions.append(f"Track '{track_details['name']}' is very loud. Consider lowering its volume.")
+
+            # Analyze panning
+            panning = track_details.get("panning", 0.0)
+            if panning < -0.1:
+                pan_left_count += 1
+            elif panning > 0.1:
+                pan_right_count += 1
+
+            # Analyze devices
+            for device in track_details.get("devices", []):
+                if "eq" in device["name"].lower():
+                    suggestions.append(f"On track '{track_details['name']}', consider using a high-pass filter on the EQ to remove unnecessary low-end rumble.")
+                if "compressor" in device["name"].lower():
+                    suggestions.append(f"On track '{track_details['name']}', a good starting point for the compressor is a 4:1 ratio with a medium attack and fast release.")
+
+        if abs(pan_left_count - pan_right_count) > len(tracks) / 3:
+            suggestions.append("The stereo image seems unbalanced. Check the panning of your tracks.")
+
+        if not suggestions:
+            return "The mix looks balanced. Good job!"
+
+        return "Here are some suggestions for your mix:\n- " + "\n- ".join(suggestions)
+
+    except Exception as e:
+        logger.error(f"Error analyzing mix: {str(e)}")
+        return f"Error analyzing mix: {str(e)}"
+
+@mcp.tool()
+@get_validated_tool
+def auto_mix_tracks(ctx: Context) -> str:
+    """
+    Automatically applies some basic mixing decisions to the tracks in the session.
+    """
+    try:
+        actions_taken = []
+        ableton = get_ableton_connection()
+        session_info = json.loads(get_session_info(ctx))
+        tracks = session_info.get("tracks", [])
+
+        # Simple auto-panning logic
+        pan_amount = 0.2
+        pan_direction = 1  # 1 for right, -1 for left
+
+        for track_info in tracks:
+            track_index = track_info["index"]
+            track_details_str = get_track_info(ctx, track_index)
+            track_details = json.loads(track_details_str)
+            track_name = track_details.get("name", "").lower()
+
+            # Auto-leveling
+            if track_details.get("volume", 0.0) > 0.85:
+                set_volume(ctx, track_index, 0.8)
+                actions_taken.append(f"Lowered volume on track '{track_name}'.")
+
+            # Auto-panning
+            if any(k in track_name for k in ["kick", "snare", "bass", "vocal"]):
+                # Keep key elements centered
+                set_panning(ctx, track_index, 0.0)
+                actions_taken.append(f"Centered track '{track_name}'.")
+            else:
+                set_panning(ctx, track_index, pan_amount * pan_direction)
+                actions_taken.append(f"Panned track '{track_name}' {'right' if pan_direction == 1 else 'left'}.")
+                pan_direction *= -1 # Alternate sides
+
+        if not actions_taken:
+            return "No mixing actions were taken. The mix seems to have a good starting balance."
+
+        return "Auto-mix applied:\n- " + "\n- ".join(actions_taken)
+
+    except Exception as e:
+        logger.error(f"Error during auto-mixing: {str(e)}")
+        return f"Error during auto-mixing: {str(e)}"
 
 if __name__ == "__main__":
     main()
