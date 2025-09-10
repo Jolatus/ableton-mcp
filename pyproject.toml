@@ -15,10 +15,15 @@ classifiers = [
 ]
 dependencies = [
     "mcp[cli]>=1.3.0",
+    "python-rtmidi",
+    "fastapi",
 ]
 
 [project.scripts]
 ableton-mcp = "MCP_Server.server:main"
+
+[project.optional-dependencies]
+dev = ["pytest"]
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
